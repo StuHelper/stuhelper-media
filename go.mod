@@ -3,7 +3,7 @@ module github.com/StuHelper/stuhelper-media
 go 1.27.3
 
 require (
-	github.com/StuHelper/stuhelper-storage v0.0.0-20261026134729-97b2f8c37c9e
+	github.com/StuHelper/stuhelper-storage v0.0.0-20261026141446-d6a194d974cf
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/oapi-codegen/runtime v1.8.0
 )
