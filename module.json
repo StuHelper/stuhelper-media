@@ -1,0 +1,17 @@
+{
+  "id": "media",
+  "implementation": "library",
+  "interface_version": 1,
+  "required": ["storage"],
+  "optional": [],
+  "specifications": ["docs/spec/media.md"],
+  "scenario_tests": {
+    "MEDIA-01": ["integration_test.go#TestValidationExpiryAndConcurrentIdempotency"],
+    "MEDIA-02": ["integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle"],
+    "MEDIA-03": ["integration_test.go#TestImmutableVersionsOwnershipAndCurrentBusinessAuthorization"],
+    "MEDIA-04": ["integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent"],
+    "MEDIA-05": ["integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"],
+    "MEDIA-06": ["http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent"],
+    "MEDIA-07": ["integration_test.go#TestLostCreateAfterReplayWindowExpiresCleansOriginalObject"]
+  }
+}
