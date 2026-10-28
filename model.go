@@ -50,6 +50,7 @@ type Store interface {
 	Delete(context.Context, Principal, string, string, int64) (storage.Status, error)
 	ChangeProtection(context.Context, Principal, string, string, int64, Protection) (storage.Status, error)
 	Download(context.Context, Principal, string, io.Writer) error
+	ReviewDownload(context.Context, Principal, string, io.Writer) error
 }
 type Profile struct {
 	Module       string     `json:"module"`

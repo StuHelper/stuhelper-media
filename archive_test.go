@@ -121,3 +121,24 @@ func TestFileListOwnerCursorAndCurrentPermission(t *testing.T) {
 		}
 	}
 }
+
+func TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission(t *testing.T) {
+	h := newFixture(t)
+	body := []byte("review before publication")
+	v := h.newUpload(t, "review", body)
+	var out bytes.Buffer
+	must(t, h.s.ReviewDownload(h.ctx, user, v.ID, &out))
+	if !bytes.Equal(out.Bytes(), body) {
+		t.Fatal("wrong review content")
+	}
+	current, e := h.s.GetVersion(h.ctx, user, v.ID)
+	must(t, e)
+	if current.Approved || current.State != "awaiting_approval" {
+		t.Fatal("review published content", current)
+	}
+	h.policy.deny("media.versions.review", true)
+	out.Reset()
+	if e = h.s.ReviewDownload(h.ctx, user, v.ID, &out); !errors.Is(e, media.ErrDenied) || out.Len() != 0 {
+		t.Fatal("revoked reviewer received data", e)
+	}
+}

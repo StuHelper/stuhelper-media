@@ -259,3 +259,58 @@ func (s *Service) download(ctx context.Context, p Principal, id string, dst io.W
 	}
 	return storeError(e)
 }
+
+// ReviewDownload serves complete, verified bytes to a separately authorized
+// reviewer. It never activates a reference or grants ordinary download access.
+func (s *Service) ReviewDownload(ctx context.Context, p Principal, id string, dst io.Writer) error {
+	if !idOK(id) || dst == nil {
+		return ErrInput
+	}
+	ctx, done, e := s.begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer done()
+	var object string
+	var quarantine, published Protection
+	check := func() error {
+		e := s.repo.Transaction(ctx, func(tx Transaction) error {
+			f, v, e := s.load(tx, id)
+			if e != nil {
+				return e
+			}
+			if e = s.authorize(ctx, p, "media.versions.review", access(f, v, nil)); e != nil {
+				return e
+			}
+			if f.Disabled || f.Deleting || terminal(v) || (v.State != "awaiting_approval" && !v.Approved) || v.ObjectID == "" {
+				return ErrDenied
+			}
+			if object != "" && object != v.ObjectID {
+				return ErrConflict
+			}
+			object = v.ObjectID
+			quarantine = v.Profile.Quarantine
+			published = v.Profile.Published
+			return nil
+		})
+		if e != nil {
+			return e
+		}
+		status, e := s.store.Status(ctx, s.cfg.Actor, object)
+		if e != nil {
+			return storeError(e)
+		}
+		if status.Protection != quarantine && status.Protection != published {
+			return ErrDenied
+		}
+		return nil
+	}
+	if e := check(); e != nil {
+		return e
+	}
+	e = s.store.ReviewDownload(ctx, s.cfg.Actor, object, &checkedWriter{check: check, dst: dst})
+	if errors.Is(e, ErrDenied) || errors.Is(e, ErrConflict) {
+		return e
+	}
+	return storeError(e)
+}

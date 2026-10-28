@@ -36,6 +36,9 @@
     ],
     "MEDIA-09": [
       "archive_test.go#TestFileListOwnerCursorAndCurrentPermission"
+    ],
+    "MEDIA-10": [
+      "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission"
     ]
   }
 }
