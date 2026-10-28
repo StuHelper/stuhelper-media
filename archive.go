@@ -9,6 +9,12 @@ import (
 	"io"
 )
 
+// ArchiveLimits returns the configured limits so a composing business service
+// can reject an incompatible package policy before accepting user requests.
+func (s *Service) ArchiveLimits() (files int, bytes int64) {
+	return s.cfg.MaxArchiveFiles, s.cfg.MaxArchiveBytes
+}
+
 func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor string) (FilePage, error) {
 	out := FilePage{Items: []File{}}
 	if limit < 1 || limit > 100 || (cursor != "" && !idOK(cursor)) {
