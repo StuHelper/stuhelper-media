@@ -86,8 +86,14 @@ func (s *Service) ReferenceVersion(ctx context.Context, p Principal, id string) 
 		if e != nil {
 			return e
 		}
+		if e = s.authorize(ctx, p, "media.references.download", access(f, v, &r)); e != nil {
+			return e
+		}
+		if f.Disabled || f.Deleting || terminal(v) || !v.Approved || r.State != "active" || v.ObjectID == "" {
+			return ErrDenied
+		}
 		out = v
-		return s.authorize(ctx, p, "media.references.download", access(f, v, &r))
+		return nil
 	})
 	return out, e
 }

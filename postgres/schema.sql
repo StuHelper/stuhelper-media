@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS media.files (
  id text PRIMARY KEY, owner_key text NOT NULL, data jsonb NOT NULL
 );
 CREATE INDEX IF NOT EXISTS media_files_owner ON media.files(owner_key);
+CREATE INDEX IF NOT EXISTS media_files_owner_cursor ON media.files(owner_key,id);
 CREATE TABLE IF NOT EXISTS media.versions (
  id text PRIMARY KEY, file_id text NOT NULL REFERENCES media.files(id),
  upload_id text NOT NULL UNIQUE, number integer NOT NULL, state text NOT NULL,

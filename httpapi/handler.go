@@ -52,6 +52,41 @@ func New(s *media.Service, a Authenticator, max int64) (http.Handler, error) {
 		}
 		return s.Upload(r.Context(), p, r.PathValue("id"), r.Header.Get("Idempotency-Key"), r.Body)
 	})
+	h.mount(m, "GET /api/v1/media/files", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		limit := 50
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			var e error
+			limit, e = strconv.Atoi(raw)
+			if e != nil {
+				return nil, media.ErrInput
+			}
+		}
+		for name, values := range r.URL.Query() {
+			if len(values) != 1 || (name != "limit" && name != "cursor") {
+				return nil, media.ErrInput
+			}
+		}
+		return s.ListFiles(r.Context(), p, limit, r.URL.Query().Get("cursor"))
+	})
+	h.mount(m, "POST /api/v1/media/archives/manifest", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		var q media.ArchiveRequest
+		if e := decode(r, &q); e != nil {
+			return nil, e
+		}
+		return s.ArchiveManifest(r.Context(), p, q.References)
+	})
+	h.mount(m, "POST /api/v1/media/archives/content", false, func(w http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		var q media.ArchiveRequest
+		if e := decode(r, &q); e != nil {
+			return nil, e
+		}
+		dst := &archiveWriter{ResponseWriter: w}
+		e := s.Archive(r.Context(), p, q.References, dst)
+		if e != nil && dst.started {
+			panic(http.ErrAbortHandler)
+		}
+		return nil, e
+	})
 	h.mount(m, "GET /api/v1/media/files/{id}", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
 		return s.GetFile(r.Context(), p, r.PathValue("id"))
 	})
@@ -228,4 +263,19 @@ func (h *handler) download(w http.ResponseWriter, r *http.Request, p media.Princ
 		panic(http.ErrAbortHandler)
 	}
 	return nil, e
+}
+
+type archiveWriter struct {
+	http.ResponseWriter
+	started bool
+}
+
+func (w *archiveWriter) Write(b []byte) (int, error) {
+	if !w.started {
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", `attachment; filename="files.zip"`)
+		w.WriteHeader(200)
+		w.started = true
+	}
+	return w.ResponseWriter.Write(b)
 }

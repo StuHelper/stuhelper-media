@@ -32,6 +32,15 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 	if r == nil || a == nil || store == nil || !c.Actor.Valid() || len(c.Profiles) == 0 || len(c.Profiles) > 64 || c.UploadTTL < time.Minute || c.UploadTTL > 24*time.Hour || c.UnreferencedTTL < c.UploadTTL || c.UnreferencedTTL > 24*time.Hour || c.OperationTimeout < time.Second || c.OperationTimeout > 5*time.Minute || c.ParallelTransfers < 1 || c.ParallelTransfers > 16 || c.MaxOpenUploads < 1 || c.MaxOpenUploads > 100 || c.MaxFilesPerOwner < 1 || c.MaxFilesPerOwner > 10000 || c.MaxVersions < 1 || c.MaxVersions > 100 || c.MaxReferences < 1 || c.MaxReferences > 100 || c.MaxAttempts < 1 || c.MaxAttempts > 100 {
 		return nil, ErrInput
 	}
+	if c.MaxArchiveFiles == 0 {
+		c.MaxArchiveFiles = 100
+	}
+	if c.MaxArchiveBytes == 0 {
+		c.MaxArchiveBytes = 1 << 30
+	}
+	if c.MaxArchiveFiles < 1 || c.MaxArchiveFiles > 100 || c.MaxArchiveBytes < 1 || c.MaxArchiveBytes > 1<<30 {
+		return nil, ErrInput
+	}
 	profiles := make(map[string]Profile, len(c.Profiles))
 	for name, p := range c.Profiles {
 		if !idOK(name) || !idOK(p.Module) || !p.Quarantine.Valid() || p.Quarantine.Public || !p.Published.Valid() || p.Published.Scope != p.Quarantine.Scope || (!p.Published.Public && p.Published != p.Quarantine) || p.MaxSize < 1 || p.MaxSize > 1<<30 || len(p.AllowedTypes) == 0 || len(p.AllowedTypes) > 32 {

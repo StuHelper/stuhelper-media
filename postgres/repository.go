@@ -133,6 +133,21 @@ func (t *transaction) File(id string) (media.File, error) {
 	r.File.NextVersion = r.NextVersion
 	return r.File, e
 }
+func (t *transaction) Files(p media.Principal, limit int, cursor string) ([]media.FileListing, error) {
+	type row struct {
+		fileRecord
+		Protection media.Protection `json:"protection"`
+	}
+	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protection',v.data->'profile'->'published') FROM media.files f JOIN LATERAL (SELECT data FROM media.versions WHERE file_id=f.id ORDER BY number LIMIT 1) v ON true WHERE owner_key=$1 AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
+	out := []media.FileListing{}
+	for _, r := range rows {
+		f := r.File
+		f.Owner = r.Owner
+		f.NextVersion = r.NextVersion
+		out = append(out, media.FileListing{File: f, Protection: r.Protection})
+	}
+	return out, e
+}
 func (t *transaction) SaveFile(v media.File) error {
 	return t.save(`INSERT INTO media.files(id,owner_key,data) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, fileRecord{v, v.Owner, v.NextVersion}, v.ID, owner(v.Owner))
 }

@@ -202,6 +202,11 @@ func (s *Service) Download(ctx context.Context, p Principal, id string, dst io.W
 		return e
 	}
 	defer done()
+	return s.download(ctx, p, id, dst)
+}
+
+// download reuses an already reserved transfer slot for an archive entry.
+func (s *Service) download(ctx context.Context, p Principal, id string, dst io.Writer) error {
 	var object string
 	var expected Protection
 	check := func() error {
@@ -244,10 +249,10 @@ func (s *Service) Download(ctx context.Context, p Principal, id string, dst io.W
 		}
 		return nil
 	}
-	if e = check(); e != nil {
+	if e := check(); e != nil {
 		return e
 	}
-	e = s.store.Download(ctx, s.cfg.Actor, object, &checkedWriter{check: check, dst: dst})
+	e := s.store.Download(ctx, s.cfg.Actor, object, &checkedWriter{check: check, dst: dst})
 	// A business denial from the final writer is already a media error.
 	if errors.Is(e, ErrDenied) || errors.Is(e, ErrConflict) {
 		return e

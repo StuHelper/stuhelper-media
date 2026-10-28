@@ -65,6 +65,8 @@ type Config struct {
 	UploadTTL, UnreferencedTTL, OperationTimeout                                    time.Duration
 	ParallelTransfers, MaxOpenUploads, MaxFilesPerOwner, MaxVersions, MaxReferences int
 	MaxAttempts                                                                     int
+	MaxArchiveFiles                                                                 int
+	MaxArchiveBytes                                                                 int64
 }
 type File struct {
 	ID          string    `json:"id"`
@@ -132,6 +134,31 @@ type FileView struct {
 	File
 	Versions []Version `json:"versions"`
 }
+type FileListing struct {
+	File
+	Protection Protection
+}
+
+type FilePage struct {
+	Items      []File `json:"items"`
+	NextCursor string `json:"next_cursor"`
+}
+type ArchiveRequest struct {
+	References []string `json:"references"`
+}
+type ArchiveEntry struct {
+	ReferenceID string `json:"reference_id"`
+	VersionID   string `json:"version_id"`
+	Path        string `json:"path"`
+	Filename    string `json:"filename"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256"`
+}
+type ArchiveManifest struct {
+	Entries   []ArchiveEntry `json:"entries"`
+	TotalSize int64          `json:"total_size"`
+}
+
 type Replay struct {
 	Key, Digest string
 	Result      json.RawMessage
@@ -169,6 +196,7 @@ type Repository interface {
 type Transaction interface {
 	Lock(string) error
 	File(string) (File, error)
+	Files(Principal, int, string) ([]FileListing, error)
 	SaveFile(File) error
 	Version(string) (Version, error)
 	Upload(string) (Version, error)
