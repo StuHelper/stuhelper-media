@@ -146,6 +146,9 @@ type VersionView struct {
 	Id              string    `json:"id"`
 	Number          int64     `json:"number"`
 	RetainUntil     time.Time `json:"retain_until"`
+
+	// Reused True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes.
+	Reused          *bool     `json:"reused,omitempty"`
 	Revision        int64     `json:"revision"`
 	Sha256          string    `json:"sha256"`
 	Size            int64     `json:"size"`

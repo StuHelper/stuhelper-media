@@ -286,6 +286,8 @@ export interface components {
             healthy: number;
             /** Format: int64 */
             desired: number;
+            /** @description True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes. */
+            reused?: boolean;
         };
         FileView: {
             id: string;

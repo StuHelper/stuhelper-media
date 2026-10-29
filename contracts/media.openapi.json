@@ -2322,6 +2322,10 @@
           "desired": {
             "type": "integer",
             "format": "int64"
+          },
+          "reused": {
+            "type": "boolean",
+            "description": "True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes."
           }
         }
       },
