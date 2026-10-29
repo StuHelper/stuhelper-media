@@ -255,6 +255,7 @@ export interface components {
             upload_expires_at: string;
             /** Format: date-time */
             retain_until: string;
+            /** @description This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish. */
             cleanup_complete: boolean;
             error_code: string;
             /** @description True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes. */
@@ -279,6 +280,7 @@ export interface components {
             upload_expires_at: string;
             /** Format: date-time */
             retain_until: string;
+            /** @description This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish. */
             cleanup_complete: boolean;
             error_code: string;
             storage_state: string;

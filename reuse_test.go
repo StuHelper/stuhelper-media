@@ -113,6 +113,23 @@ func TestReuseRequiresCurrentSourceRightsAndProfile(t *testing.T) {
 		t.Fatal("reuse ignored current read permission")
 	}
 	h.policy.deny("media.files.read", false)
+	// A changed purpose profile must not silently reuse the old approval context.
+	originalProfile := h.cfg.Profiles["documents"]
+	changedProfile := originalProfile
+	changedProfile.MaxSize /= 2
+	must(t, h.s.Close(h.ctx))
+	h.cfg.Profiles["documents"] = changedProfile
+	h.s, e = media.New(h.repo, h.policy, h.store, h.cfg)
+	must(t, e)
+	changed, e := h.s.CreateUpload(h.ctx, user, "profile-changed", r)
+	must(t, e)
+	if changed.Reused {
+		t.Fatal("reuse ignored current purpose configuration")
+	}
+	must(t, h.s.Close(h.ctx))
+	h.cfg.Profiles["documents"] = originalProfile
+	h.s, e = media.New(h.repo, h.policy, h.store, h.cfg)
+	must(t, e)
 	file, e := h.s.GetFile(h.ctx, user, source.FileID)
 	must(t, e)
 	_, e = h.s.SetFileState(h.ctx, user, file.ID, "disable-source", file.Revision, true)

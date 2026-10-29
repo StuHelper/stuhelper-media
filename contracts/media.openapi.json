@@ -2227,7 +2227,8 @@
             "format": "date-time"
           },
           "cleanup_complete": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish."
           },
           "error_code": {
             "type": "string"
@@ -2307,7 +2308,8 @@
             "format": "date-time"
           },
           "cleanup_complete": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish."
           },
           "error_code": {
             "type": "string"

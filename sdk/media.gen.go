@@ -113,7 +113,9 @@ type UploadRequest struct {
 
 // Version defines model for Version.
 type Version struct {
-	Approved        bool      `json:"approved"`
+	Approved bool `json:"approved"`
+
+	// CleanupComplete This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish.
 	CleanupComplete bool      `json:"cleanup_complete"`
 	ContentType     string    `json:"content_type"`
 	ErrorCode       string    `json:"error_code"`
@@ -135,7 +137,9 @@ type Version struct {
 
 // VersionView defines model for VersionView.
 type VersionView struct {
-	Approved        bool      `json:"approved"`
+	Approved bool `json:"approved"`
+
+	// CleanupComplete This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish.
 	CleanupComplete bool      `json:"cleanup_complete"`
 	ContentType     string    `json:"content_type"`
 	Desired         int64     `json:"desired"`
