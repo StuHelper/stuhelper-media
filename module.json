@@ -39,6 +39,15 @@
     ],
     "MEDIA-10": [
       "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission"
+    ],
+    "MEDIA-11": [
+      "reuse_test.go#TestOwnContentReuseKeepsIndependentApprovalAndReferences",
+      "reuse_test.go#TestDigestAloneCannotReuseAnotherOwnersFile"
+    ],
+    "MEDIA-12": [
+      "reuse_test.go#TestReuseRequiresCurrentSourceRightsAndProfile",
+      "reuse_test.go#TestReuseLostResponseAndRestartDoNotResendOrApprove",
+      "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle"
     ]
   }
 }

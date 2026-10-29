@@ -5,6 +5,8 @@ github.com/StuHelper/stuhelper-storage v0.0.0-20261026141819-5169ec45f6d5 h1:bSX
 github.com/StuHelper/stuhelper-storage v0.0.0-20261026141819-5169ec45f6d5/go.mod h1:82yhi8j8EGwlMsytCgaDqBtKjd+Ah1C40tWTX9rBnUo=
 github.com/StuHelper/stuhelper-storage v0.0.0-20261028165231-e5cfd40dcde1 h1:RuS14makMKdBmwBSZNboVupCy698wlydmnm5tmE+2Bc=
 github.com/StuHelper/stuhelper-storage v0.0.0-20261028165231-e5cfd40dcde1/go.mod h1:82yhi8j8EGwlMsytCgaDqBtKjd+Ah1C40tWTX9rBnUo=
+github.com/StuHelper/stuhelper-storage v0.0.0-20261029043916-2b2787a869ba h1:B2+QvVpwsP5vrJwpjqsJ/ksChiK0eAHImd/QEH65aFI=
+github.com/StuHelper/stuhelper-storage v0.0.0-20261029043916-2b2787a869ba/go.mod h1:82yhi8j8EGwlMsytCgaDqBtKjd+Ah1C40tWTX9rBnUo=
 github.com/apapsch/go-jsonmerge/v2 v2.0.0 h1:axGnT1gRIfimI7gJifB699GoE/oq+F2MU7Dml6nw9rQ=
 github.com/apapsch/go-jsonmerge/v2 v2.0.0/go.mod h1:lvDnEdqiQrp0O42VQGgmlKpxL1AP2+08jFMw88y4klk=
 github.com/bmatcuk/doublestar v1.1.1/go.mod h1:UD6OnuiIn0yFxxA2le/rnRU1G4RaI4UvFv1sNto9p6w=

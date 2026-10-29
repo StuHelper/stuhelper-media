@@ -258,15 +258,42 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 		if e = tx.SaveFile(f); e != nil {
 			return nil, e
 		}
-		v := Version{ID: newID(), FileID: f.ID, Number: f.NextVersion, Revision: 1, UploadID: newID(), Filename: r.Filename, ContentType: r.ContentType, Size: r.Size, SHA256: r.SHA256, State: "created", ExpiresAt: s.now().Add(s.cfg.UploadTTL), RetainUntil: s.now().Add(s.cfg.UnreferencedTTL), Profile: profile, References: []Reference{}}
+		v := Version{Shared: true, ID: newID(), FileID: f.ID, Number: f.NextVersion, Revision: 1, UploadID: newID(), Filename: r.Filename, ContentType: r.ContentType, Size: r.Size, SHA256: r.SHA256, State: "created", ExpiresAt: s.now().Add(s.cfg.UploadTTL), RetainUntil: s.now().Add(s.cfg.UnreferencedTTL), Profile: profile, References: []Reference{}}
+		if r.ReuseExisting {
+			source, e := s.chooseReuse(ctx, tx, p, r, profile)
+			if e != nil {
+				return nil, e
+			}
+			if source.ID != "" {
+				v.Reused = true
+				v.ReuseSource = source.ID
+				v.ReuseObject = source.ObjectID
+				v.ObjectIssued = true
+				v.TypeValidated = true
+				v.State = "verifying"
+			}
+		}
 		if e = tx.SaveVersion(v); e != nil {
 			return nil, e
+		}
+		if v.Reused {
+			if e = s.schedule(tx, v.ID, true); e != nil {
+				return nil, e
+			}
 		}
 		if e = s.emit(tx, p, "media.upload.created", v.ID, v.Revision); e != nil {
 			return nil, e
 		}
 		return v, nil
 	}, &out)
+	if e == nil && out.Reused {
+		work, done, err := s.begin(ctx)
+		if err != nil {
+			return out, err
+		}
+		defer done()
+		return s.reuseUpload(work, p, out.ID)
+	}
 	return out, e
 }
 func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (VersionView, error) {

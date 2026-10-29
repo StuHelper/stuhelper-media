@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS media.versions (
  upload_id text NOT NULL UNIQUE, number integer NOT NULL, state text NOT NULL,
  data jsonb NOT NULL, UNIQUE(file_id,number)
 );
+CREATE INDEX IF NOT EXISTS media_content_reuse ON media.versions((data->>'sha256'),((data->>'size')::bigint),(data->>'content_type'),file_id,id) WHERE state IN ('awaiting_approval','approved','ready');
 CREATE TABLE IF NOT EXISTS media.references (
  id text PRIMARY KEY, version_id text NOT NULL REFERENCES media.versions(id), data jsonb NOT NULL
 );

@@ -257,6 +257,8 @@ export interface components {
             retain_until: string;
             cleanup_complete: boolean;
             error_code: string;
+            /** @description True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes. */
+            reused?: boolean;
         };
         VersionView: {
             id: string;
@@ -314,6 +316,11 @@ export interface components {
             /** Format: int64 */
             size: number;
             sha256: string;
+            /**
+             * @description Attempt to reuse a completed upload owned by the current user with the same purpose, configured protection, content type, size and SHA-256. A different user digest alone never skips upload.
+             * @default false
+             */
+            reuse_existing: boolean;
         };
         Binding: {
             module: string;

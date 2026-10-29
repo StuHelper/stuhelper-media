@@ -80,6 +80,10 @@ type File struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 type Version struct {
+	Reused          bool      `json:"reused,omitempty"`
+	Shared          bool      `json:"-"`
+	ReuseSource     string    `json:"-"`
+	ReuseObject     string    `json:"-"`
 	ID              string    `json:"id"`
 	FileID          string    `json:"file_id"`
 	Number          int       `json:"number"`
@@ -114,12 +118,13 @@ type Reference struct {
 	Revision   int64  `json:"revision"`
 }
 type UploadRequest struct {
-	FileID      string `json:"file_id,omitempty"`
-	Purpose     string `json:"purpose"`
-	Filename    string `json:"filename"`
-	ContentType string `json:"content_type"`
-	Size        int64  `json:"size"`
-	SHA256      string `json:"sha256"`
+	ReuseExisting bool   `json:"reuse_existing,omitempty"`
+	FileID        string `json:"file_id,omitempty"`
+	Purpose       string `json:"purpose"`
+	Filename      string `json:"filename"`
+	ContentType   string `json:"content_type"`
+	Size          int64  `json:"size"`
+	SHA256        string `json:"sha256"`
 }
 type Binding struct {
 	Module     string `json:"module"`
@@ -195,6 +200,7 @@ type Repository interface {
 	AcknowledgeEvent(context.Context, string) error
 }
 type Transaction interface {
+	ReuseCandidates(Principal, UploadRequest) ([]Version, error)
 	Lock(string) error
 	File(string) (File, error)
 	Files(Principal, int, string) ([]FileListing, error)

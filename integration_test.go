@@ -507,9 +507,9 @@ func TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent(t *testing.T) 
 		t.Fatal(r.State)
 	}
 	var count int
-	must(t, h.admin.QueryRow(`SELECT count(*) FROM storage.objects`).Scan(&count))
+	must(t, h.admin.QueryRow(`SELECT count(*) FROM storage.objects WHERE data->>'state' NOT IN ('deleted','deleting')`).Scan(&count))
 	if count != 1 {
-		t.Fatal("duplicated storage object", count)
+		t.Fatal("duplicated live storage object after protection migration", count)
 	}
 }
 

@@ -104,8 +104,11 @@ type UploadRequest struct {
 	FileId      *string `json:"file_id,omitempty"`
 	Filename    string  `json:"filename"`
 	Purpose     string  `json:"purpose"`
-	Sha256      string  `json:"sha256"`
-	Size        int64   `json:"size"`
+
+	// ReuseExisting Attempt to reuse a completed upload owned by the current user with the same purpose, configured protection, content type, size and SHA-256. A different user digest alone never skips upload.
+	ReuseExisting *bool  `json:"reuse_existing,omitempty"`
+	Sha256        string `json:"sha256"`
+	Size          int64  `json:"size"`
 }
 
 // Version defines model for Version.
@@ -119,6 +122,9 @@ type Version struct {
 	Id              string    `json:"id"`
 	Number          int64     `json:"number"`
 	RetainUntil     time.Time `json:"retain_until"`
+
+	// Reused True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes.
+	Reused          *bool     `json:"reused,omitempty"`
 	Revision        int64     `json:"revision"`
 	Sha256          string    `json:"sha256"`
 	Size            int64     `json:"size"`

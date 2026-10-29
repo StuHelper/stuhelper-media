@@ -161,6 +161,10 @@ func (s *Service) advance(ctx context.Context, j Job, f File, v Version) (bool, 
 	if !v.ObjectIssued {
 		return false, nil
 	}
+	if v.Reused && !terminal(v) && v.State == "verifying" {
+		_, e := s.reuseUpload(ctx, f.Owner, v.ID)
+		return e == nil, e
+	}
 	id, e := s.ensureObject(ctx, v)
 	if e != nil {
 		return false, e

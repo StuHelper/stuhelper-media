@@ -12,16 +12,17 @@ import (
 )
 
 func (s *Service) ensureObject(ctx context.Context, v Version) (string, error) {
-	if v.ObjectID != "" {
+	if v.ObjectID != "" && (!v.Reused || v.State != "verifying") {
 		return v.ObjectID, nil
 	}
 	if !v.ObjectIssued {
 		return "", ErrConflict
 	}
-	st, e := s.store.Create(ctx, s.cfg.Actor, "media-create:"+v.ID, storage.CreateRequest{ClientKey: "media:" + v.ID, Size: v.Size, SHA256: v.SHA256, Protection: v.Profile.Quarantine})
-	if e != nil {
+	st, e := s.store.Create(ctx, s.cfg.Actor, "media-create:"+v.ID, storage.CreateRequest{Deduplicate: v.Shared, ReuseFrom: v.ReuseObject, ClientKey: "media:" + v.ID, Size: v.Size, SHA256: v.SHA256, Protection: v.Profile.Quarantine})
+	if e != nil && st.ID == "" {
 		return "", storeError(e)
 	}
+	storeErr := e
 	receipt, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	e = s.repo.Transaction(receipt, func(tx Transaction) error {
@@ -35,7 +36,10 @@ func (s *Service) ensureObject(ctx context.Context, v Version) (string, error) {
 		current.ObjectID = st.ID
 		return tx.SaveVersion(current)
 	})
-	return st.ID, e
+	if e != nil {
+		return st.ID, e
+	}
+	return st.ID, storeError(storeErr)
 }
 func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src io.Reader) (Version, error) {
 	if !idOK(id) || !validKey(key) || src == nil {
@@ -49,6 +53,7 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 	ctx = work
 	var v Version
 	var complete bool
+	var reused bool
 	e = s.repo.Transaction(ctx, func(tx Transaction) error {
 		initial, e := tx.Upload(id)
 		if e != nil {
@@ -72,6 +77,10 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 			complete = true
 			return nil
 		}
+		if v.Reused {
+			reused = true
+			return nil
+		}
 		if !v.ExpiresAt.After(s.now()) {
 			return ErrExpired
 		}
@@ -89,6 +98,9 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 	})
 	if e != nil || complete {
 		return v, e
+	}
+	if reused {
+		return s.reuseUpload(ctx, p, v.ID)
 	}
 	prefix, e := io.ReadAll(io.LimitReader(src, 512))
 	if e == nil {

@@ -29,6 +29,9 @@ type fileRecord struct {
 	NextVersion int             `json:"next_version"`
 }
 type versionRecord struct {
+	Shared      bool   `json:"shared,omitempty"`
+	ReuseSource string `json:"reuse_source,omitempty"`
+	ReuseObject string `json:"reuse_object,omitempty"`
 	media.Version
 	ObjectID         string            `json:"object_id"`
 	ObjectIssued     bool              `json:"object_issued"`
@@ -40,10 +43,13 @@ type versionRecord struct {
 }
 
 func record(v media.Version) versionRecord {
-	return versionRecord{v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
+	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
 }
 func (r versionRecord) value() media.Version {
 	v := r.Version
+	v.Shared = r.Shared
+	v.ReuseSource = r.ReuseSource
+	v.ReuseObject = r.ReuseObject
 	v.ObjectID = r.ObjectID
 	v.ObjectIssued = r.ObjectIssued
 	v.TypeValidated = r.TypeValidated
@@ -268,4 +274,15 @@ func (r *Repository) CheckRuntime(ctx context.Context) error {
 		return media.ErrDenied
 	}
 	return nil
+}
+
+// Only the owner's small matching set is considered. Current authorization and
+// complete profile equality are checked by Service before selecting a candidate.
+func (t *transaction) ReuseCandidates(p media.Principal, r media.UploadRequest) ([]media.Version, error) {
+	rows, e := list[versionRecord](t, `SELECT v.data FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND f.data->>'purpose'=$2 AND v.data->>'sha256'=$3 AND (v.data->>'size')::bigint=$4 AND v.data->>'content_type'=$5 AND v.state IN ('awaiting_approval','approved','ready') AND NOT (f.data->>'disabled')::boolean AND NOT (f.data->>'deleting')::boolean ORDER BY v.id LIMIT 10`, owner(p), r.Purpose, r.SHA256, r.Size, r.ContentType)
+	out := make([]media.Version, 0, len(rows))
+	for _, v := range rows {
+		out = append(out, v.value())
+	}
+	return out, e
 }
