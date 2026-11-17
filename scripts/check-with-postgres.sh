@@ -2,10 +2,27 @@
 set -euo pipefail
 # A disposable, socket-only cluster; never connects to an application database.
 pg_bin="${STUHELPER_TEST_PG_BIN:-}"
+if [[ -z "$pg_bin" ]] && command -v pg_config >/dev/null 2>&1; then
+  candidate="$(pg_config --bindir 2>/dev/null || true)"
+  if [[ -n "$candidate" && -x "$candidate/initdb" && -x "$candidate/pg_ctl" && -x "$candidate/postgres" ]]; then
+    pg_bin="$candidate"
+  fi
+fi
+if [[ -z "$pg_bin" ]] && command -v initdb >/dev/null 2>&1; then
+  candidate="$(dirname "$(command -v initdb)")"
+  if [[ -x "$candidate/initdb" && -x "$candidate/pg_ctl" && -x "$candidate/postgres" ]]; then
+    pg_bin="$candidate"
+  fi
+fi
+if [[ -z "$pg_bin" ]] && command -v dpkg-query >/dev/null 2>&1; then
+  pg_package="$(dpkg-query -W -f='${Depends}' postgresql 2>/dev/null | grep -oE 'postgresql-[0-9]+' | head -n 1 || true)"
+  if [[ -n "$pg_package" ]]; then
+    pg_bin="/usr/lib/postgresql/${pg_package#postgresql-}/bin"
+  fi
+fi
 if [[ -z "$pg_bin" ]]; then
-  pg_package="$(dpkg-query -W -f='${Depends}' postgresql | grep -oE 'postgresql-[0-9]+' | head -n 1)"
-  test -n "$pg_package"
-  pg_bin="/usr/lib/postgresql/${pg_package#postgresql-}/bin"
+  echo "ERROR: PostgreSQL server binaries (initdb/pg_ctl/postgres) not found; set STUHELPER_TEST_PG_BIN" >&2
+  exit 1
 fi
 export STUHELPER_TEST_PG_BIN="$pg_bin"
 "$pg_bin/postgres" --version

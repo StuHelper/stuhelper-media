@@ -22,7 +22,7 @@ make generate
 bash scripts/check-with-postgres.sh
 ```
 
-检查使用专用、仅本地 socket 的 PostgreSQL，结束清理数据库。普通测试使用供应商和业务授权夹具，不登录真实 BHpan。OpenAPI 先定义接口，再生成 Go 与 TypeScript SDK；生成一致性纳入检查。
+检查使用仅开放本地 socket 的临时 PostgreSQL 并在结束时清理，自动按 pg_config、PATH 与 dpkg-query 顺序探测二进制目录。普通测试使用夹具，不登录真实 BHpan。OpenAPI 先定义接口，再生成 Go 客户端与服务端接口及 TypeScript SDK。
 
 具体规则、资源上限和验收场景见[模块规格](docs/spec/media.md)。后台装配与界面由应用仓库负责；Next SSO、贡献激励、受限文件加密和阅读器不在本模块实现。
 

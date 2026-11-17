@@ -20,13 +20,16 @@
       "integration_test.go#TestImmutableVersionsOwnershipAndCurrentBusinessAuthorization"
     ],
     "MEDIA-04": [
-      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent"
+      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent",
+      "integration_test.go#TestUploadLeaseConcurrencyAndReviewDownloadBoundaries"
     ],
     "MEDIA-05": [
       "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"
     ],
     "MEDIA-06": [
-      "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent"
+      "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent",
+      "http_test.go#TestHTTPReuseLifecycleArchiveAbortAndPayloadLimits",
+      "http_test.go#TestCheckWithPostgresScriptBinaryResolution"
     ],
     "MEDIA-07": [
       "integration_test.go#TestLostCreateAfterReplayWindowExpiresCleansOriginalObject"
@@ -38,7 +41,8 @@
       "archive_test.go#TestFileListOwnerCursorAndCurrentPermission"
     ],
     "MEDIA-10": [
-      "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission"
+      "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission",
+      "integration_test.go#TestUploadLeaseConcurrencyAndReviewDownloadBoundaries"
     ],
     "MEDIA-11": [
       "reuse_test.go#TestOwnContentReuseKeepsIndependentApprovalAndReferences",
