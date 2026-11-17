@@ -41,6 +41,7 @@ func (s *Service) Attach(ctx context.Context, p Principal, id, key string, b Bin
 			return nil, ErrCapacity
 		}
 		v.References = append(v.References, ref)
+		s.extendPendingRetention(&v)
 		if e := s.save(tx, p, v, "media.reference.attached"); e != nil {
 			return nil, e
 		}

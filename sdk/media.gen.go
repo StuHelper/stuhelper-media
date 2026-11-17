@@ -17,6 +17,33 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for RejectionReason.
+const (
+	CopyrightViolation RejectionReason = "copyright_violation"
+	DuplicateContent   RejectionReason = "duplicate_content"
+	PolicyViolation    RejectionReason = "policy_violation"
+	UnreadableContent  RejectionReason = "unreadable_content"
+	WrongCourse        RejectionReason = "wrong_course"
+)
+
+// Valid indicates whether the value is a known member of the RejectionReason enum.
+func (e RejectionReason) Valid() bool {
+	switch e {
+	case CopyrightViolation:
+		return true
+	case DuplicateContent:
+		return true
+	case PolicyViolation:
+		return true
+	case UnreadableContent:
+		return true
+	case WrongCourse:
+		return true
+	default:
+		return false
+	}
+}
+
 // ArchiveEntry defines model for ArchiveEntry.
 type ArchiveEntry struct {
 	Filename    string `json:"filename"`
@@ -93,6 +120,14 @@ type Reference struct {
 	VersionId  string `json:"version_id"`
 }
 
+// RejectionReason defines model for RejectionReason.
+type RejectionReason string
+
+// RejectionRequest defines model for RejectionRequest.
+type RejectionRequest struct {
+	Reason RejectionReason `json:"reason"`
+}
+
 // Revision defines model for Revision.
 type Revision struct {
 	Revision int64 `json:"revision"`
@@ -116,14 +151,15 @@ type Version struct {
 	Approved bool `json:"approved"`
 
 	// CleanupComplete This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish.
-	CleanupComplete bool      `json:"cleanup_complete"`
-	ContentType     string    `json:"content_type"`
-	ErrorCode       string    `json:"error_code"`
-	FileId          string    `json:"file_id"`
-	Filename        string    `json:"filename"`
-	Id              string    `json:"id"`
-	Number          int64     `json:"number"`
-	RetainUntil     time.Time `json:"retain_until"`
+	CleanupComplete bool             `json:"cleanup_complete"`
+	ContentType     string           `json:"content_type"`
+	ErrorCode       string           `json:"error_code"`
+	FileId          string           `json:"file_id"`
+	Filename        string           `json:"filename"`
+	Id              string           `json:"id"`
+	Number          int64            `json:"number"`
+	RejectionReason *RejectionReason `json:"rejection_reason,omitempty"`
+	RetainUntil     time.Time        `json:"retain_until"`
 
 	// Reused True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes.
 	Reused          *bool     `json:"reused,omitempty"`
@@ -140,16 +176,17 @@ type VersionView struct {
 	Approved bool `json:"approved"`
 
 	// CleanupComplete This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish.
-	CleanupComplete bool      `json:"cleanup_complete"`
-	ContentType     string    `json:"content_type"`
-	Desired         int64     `json:"desired"`
-	ErrorCode       string    `json:"error_code"`
-	FileId          string    `json:"file_id"`
-	Filename        string    `json:"filename"`
-	Healthy         int64     `json:"healthy"`
-	Id              string    `json:"id"`
-	Number          int64     `json:"number"`
-	RetainUntil     time.Time `json:"retain_until"`
+	CleanupComplete bool             `json:"cleanup_complete"`
+	ContentType     string           `json:"content_type"`
+	Desired         int64            `json:"desired"`
+	ErrorCode       string           `json:"error_code"`
+	FileId          string           `json:"file_id"`
+	Filename        string           `json:"filename"`
+	Healthy         int64            `json:"healthy"`
+	Id              string           `json:"id"`
+	Number          int64            `json:"number"`
+	RejectionReason *RejectionReason `json:"rejection_reason,omitempty"`
+	RetainUntil     time.Time        `json:"retain_until"`
 
 	// Reused True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes.
 	Reused          *bool     `json:"reused,omitempty"`
@@ -213,6 +250,11 @@ type AttachReferenceParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// RejectVersionParams defines parameters for RejectVersion.
+type RejectVersionParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // DownloadArchiveJSONRequestBody defines body for DownloadArchive for application/json ContentType.
 type DownloadArchiveJSONRequestBody = ArchiveRequest
 
@@ -230,6 +272,9 @@ type CreateUploadJSONRequestBody = UploadRequest
 
 // AttachReferenceJSONRequestBody defines body for AttachReference for application/json ContentType.
 type AttachReferenceJSONRequestBody = Binding
+
+// RejectVersionJSONRequestBody defines body for RejectVersion for application/json ContentType.
+type RejectVersionJSONRequestBody = RejectionRequest
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -388,6 +433,14 @@ type ClientInterface interface {
 	// AttachReference performs a POST /api/v1/media/versions/{id}/references (the `AttachReference` operationId) request.
 	// Takes a body of the `application/json` content type.
 	AttachReference(ctx context.Context, id string, params *AttachReferenceParams, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RejectVersionWithBody performs a POST /api/v1/media/versions/{id}/rejection (the `RejectVersion` operationId) request,
+	// with any type of body and a specified content type.
+	RejectVersionWithBody(ctx context.Context, id string, params *RejectVersionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RejectVersion performs a POST /api/v1/media/versions/{id}/rejection (the `RejectVersion` operationId) request.
+	// Takes a body of the `application/json` content type.
+	RejectVersion(ctx context.Context, id string, params *RejectVersionParams, body RejectVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // DownloadArchiveWithBody performs a POST /api/v1/media/archives/content (the `DownloadArchive` operationId) request,
@@ -694,6 +747,34 @@ func (c *Client) AttachReferenceWithBody(ctx context.Context, id string, params 
 // Takes a body of the `application/json` content type.
 func (c *Client) AttachReference(ctx context.Context, id string, params *AttachReferenceParams, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAttachReferenceRequest(c.Server, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RejectVersionWithBody performs a POST /api/v1/media/versions/{id}/rejection (the `RejectVersion` operationId) request,
+// with any type of body and a specified content type.
+func (c *Client) RejectVersionWithBody(ctx context.Context, id string, params *RejectVersionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRejectVersionRequestWithBody(c.Server, id, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RejectVersion performs a POST /api/v1/media/versions/{id}/rejection (the `RejectVersion` operationId) request.
+// Takes a body of the `application/json` content type.
+func (c *Client) RejectVersion(ctx context.Context, id string, params *RejectVersionParams, body RejectVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRejectVersionRequest(c.Server, id, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1490,6 +1571,66 @@ func NewAttachReferenceRequestWithBody(server string, id string, params *AttachR
 	return req, nil
 }
 
+// NewRejectVersionRequest calls the generic RejectVersion builder with application/json body
+func NewRejectVersionRequest(server string, id string, params *RejectVersionParams, body RejectVersionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRejectVersionRequestWithBody(server, id, params, "application/json", bodyReader)
+}
+
+// NewRejectVersionRequestWithBody constructs an http.Request for the RejectVersion method, with any body, and a specified content type
+func NewRejectVersionRequestWithBody(server string, id string, params *RejectVersionParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/media/versions/%s/rejection", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1651,6 +1792,16 @@ type ClientWithResponsesInterface interface {
 	// AttachReferenceWithResponse performs a POST /api/v1/media/versions/{id}/references (the `AttachReference` operationId) request.
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	AttachReferenceWithResponse(ctx context.Context, id string, params *AttachReferenceParams, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*AttachReferenceResponse, error)
+
+	// RejectVersionWithBodyWithResponse performs a POST /api/v1/media/versions/{id}/rejection (the `RejectVersion` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	RejectVersionWithBodyWithResponse(ctx context.Context, id string, params *RejectVersionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RejectVersionResponse, error)
+
+	// RejectVersionWithResponse performs a POST /api/v1/media/versions/{id}/rejection (the `RejectVersion` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	RejectVersionWithResponse(ctx context.Context, id string, params *RejectVersionParams, body RejectVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*RejectVersionResponse, error)
 }
 
 type DownloadArchiveResponse struct {
@@ -3407,6 +3558,110 @@ func (r AttachReferenceResponse) ContentType() string {
 	return ""
 }
 
+type RejectVersionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Version
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Problem
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Problem
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Problem
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Problem
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Problem
+	// JSON410 the response for an HTTP 410 `application/json` response
+	JSON410 *Problem
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Problem
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Problem
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RejectVersionResponse) GetJSON200() *Version {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RejectVersionResponse) GetJSON400() *Problem {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RejectVersionResponse) GetJSON401() *Problem {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RejectVersionResponse) GetJSON403() *Problem {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RejectVersionResponse) GetJSON404() *Problem {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RejectVersionResponse) GetJSON409() *Problem {
+	return r.JSON409
+}
+
+// GetJSON410 returns the response for an HTTP 410 `application/json` response
+func (r RejectVersionResponse) GetJSON410() *Problem {
+	return r.JSON410
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r RejectVersionResponse) GetJSON413() *Problem {
+	return r.JSON413
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r RejectVersionResponse) GetJSON422() *Problem {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RejectVersionResponse) GetJSON503() *Problem {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r RejectVersionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RejectVersionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RejectVersionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RejectVersionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // DownloadArchiveWithBodyWithResponse performs a POST /api/v1/media/archives/content (the `DownloadArchive` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -3661,6 +3916,28 @@ func (c *ClientWithResponses) AttachReferenceWithResponse(ctx context.Context, i
 		return nil, err
 	}
 	return ParseAttachReferenceResponse(rsp)
+}
+
+// RejectVersionWithBodyWithResponse performs a POST /api/v1/media/versions/{id}/rejection (the `RejectVersion` operationId) request,
+// with any type of body and a specified content type.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) RejectVersionWithBodyWithResponse(ctx context.Context, id string, params *RejectVersionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RejectVersionResponse, error) {
+	rsp, err := c.RejectVersionWithBody(ctx, id, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRejectVersionResponse(rsp)
+}
+
+// RejectVersionWithResponse performs a POST /api/v1/media/versions/{id}/rejection (the `RejectVersion` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) RejectVersionWithResponse(ctx context.Context, id string, params *RejectVersionParams, body RejectVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*RejectVersionResponse, error) {
+	rsp, err := c.RejectVersion(ctx, id, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRejectVersionResponse(rsp)
 }
 
 // ParseDownloadArchiveResponse parses an HTTP response from a DownloadArchiveWithResponse call
@@ -5089,6 +5366,95 @@ func ParseAttachReferenceResponse(rsp *http.Response) (*AttachReferenceResponse,
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Reference
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRejectVersionResponse parses an HTTP response from a RejectVersionWithResponse call
+func ParseRejectVersionResponse(rsp *http.Response) (*RejectVersionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RejectVersionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Version
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

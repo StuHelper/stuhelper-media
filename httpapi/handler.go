@@ -118,6 +118,13 @@ func New(s *media.Service, a Authenticator, max int64) (http.Handler, error) {
 		}
 		return s.Approve(r.Context(), p, r.PathValue("id"), r.Header.Get("Idempotency-Key"))
 	})
+	h.mount(m, "POST /api/v1/media/versions/{id}/rejection", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		var q media.RejectionRequest
+		if e := decode(r, &q); e != nil {
+			return nil, e
+		}
+		return s.Reject(r.Context(), p, r.PathValue("id"), r.Header.Get("Idempotency-Key"), q.Reason)
+	})
 	h.mount(m, "POST /api/v1/media/versions/{id}/references", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
 		var q media.Binding
 		if e := decode(r, &q); e != nil {

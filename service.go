@@ -32,6 +32,12 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 	if r == nil || a == nil || store == nil || !c.Actor.Valid() || len(c.Profiles) == 0 || len(c.Profiles) > 64 || c.UploadTTL < time.Minute || c.UploadTTL > 24*time.Hour || c.UnreferencedTTL < c.UploadTTL || c.UnreferencedTTL > 24*time.Hour || c.OperationTimeout < time.Second || c.OperationTimeout > 5*time.Minute || c.ParallelTransfers < 1 || c.ParallelTransfers > 16 || c.MaxOpenUploads < 1 || c.MaxOpenUploads > 100 || c.MaxFilesPerOwner < 1 || c.MaxFilesPerOwner > 10000 || c.MaxVersions < 1 || c.MaxVersions > 100 || c.MaxReferences < 1 || c.MaxReferences > 100 || c.MaxAttempts < 1 || c.MaxAttempts > 100 {
 		return nil, ErrInput
 	}
+	if c.PendingApprovalTTL == 0 {
+		c.PendingApprovalTTL = c.UnreferencedTTL
+	}
+	if c.PendingApprovalTTL < c.UnreferencedTTL || c.PendingApprovalTTL > 24*time.Hour {
+		return nil, ErrInput
+	}
 	if c.MaxArchiveFiles == 0 {
 		c.MaxArchiveFiles = 100
 	}
@@ -358,6 +364,15 @@ func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView
 	})
 	return out, e
 }
+func (s *Service) extendPendingRetention(v *Version) {
+	if terminal(*v) || v.Approved || v.State != "awaiting_approval" || liveReferences(*v) == 0 {
+		return
+	}
+	until := s.now().Add(s.cfg.PendingApprovalTTL)
+	if until.After(v.RetainUntil) {
+		v.RetainUntil = until
+	}
+}
 func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Version, error) {
 	var out, v Version
 	var f File
@@ -385,6 +400,55 @@ func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Ver
 			if e := s.emit(tx, p, "media.version.approved", v.ID, v.Revision); e != nil {
 				return nil, e
 			}
+		}
+		return v, nil
+	}, &out)
+	return out, e
+}
+func (s *Service) Reject(ctx context.Context, p Principal, id, key, reason string) (Version, error) {
+	var out, v Version
+	var f File
+	if !idOK(id) || !ValidRejectionReason(reason) {
+		return out, ErrInput
+	}
+	e := s.mutation(ctx, p, "media.versions.reject", id, key, RejectionRequest{Reason: reason}, func(tx Transaction) error {
+		var e error
+		f, v, e = s.load(tx, id)
+		if e != nil {
+			return e
+		}
+		return s.authorize(ctx, p, "media.versions.reject", access(f, v, nil))
+	}, func(tx Transaction) (any, error) {
+		if f.Disabled || f.Deleting || v.Approved || activeReferences(v) > 0 {
+			return nil, ErrConflict
+		}
+		if v.State == "rejected" {
+			if v.RejectionReason == reason {
+				return v, nil
+			}
+			return nil, ErrConflict
+		}
+		if v.State != "awaiting_approval" {
+			return nil, ErrConflict
+		}
+		v.State = "rejected"
+		v.RejectionReason = reason
+		v.ErrorCode = "media_rejected_" + reason
+		for n := range v.References {
+			if v.References[n].State != "released" {
+				v.References[n].State = "released"
+				v.References[n].Revision++
+			}
+		}
+		v.Revision++
+		if e := tx.SaveVersion(v); e != nil {
+			return nil, e
+		}
+		if e := s.schedule(tx, v.ID, true); e != nil {
+			return nil, e
+		}
+		if e := s.emit(tx, p, "media.version.rejected", v.ID, v.Revision); e != nil {
+			return nil, e
 		}
 		return v, nil
 	}, &out)

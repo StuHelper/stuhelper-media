@@ -569,3 +569,110 @@ func TestLostCreateAfterReplayWindowExpiresCleansOriginalObject(t *testing.T) {
 		t.Fatal("created replacement object while recovering", count)
 	}
 }
+
+func TestVersionRejectionReasonCleanupAndPendingApprovalRetention(t *testing.T) {
+	h := newFixture(t)
+	badCfg := h.cfg
+	badCfg.PendingApprovalTTL = 30 * time.Minute
+	if _, e := media.New(h.repo, h.policy, h.store, badCfg); !errors.Is(e, media.ErrInput) {
+		t.Fatal("accepted PendingApprovalTTL shorter than UnreferencedTTL", e)
+	}
+	badCfg.PendingApprovalTTL = 25 * time.Hour
+	if _, e := media.New(h.repo, h.policy, h.store, badCfg); !errors.Is(e, media.ErrInput) {
+		t.Fatal("accepted PendingApprovalTTL exceeding storage temporary window", e)
+	}
+	must(t, h.s.Close(h.ctx))
+	cfg := h.cfg
+	cfg.UnreferencedTTL = time.Hour
+	cfg.PendingApprovalTTL = 12 * time.Hour
+	var e error
+	h.s, e = media.New(h.repo, h.policy, h.store, cfg)
+	must(t, e)
+
+	orphan := h.newUpload(t, "orphan-short", []byte("orphan awaiting approval"))
+	submitted := h.newUpload(t, "submitted-pending", []byte("bound to pending submission"))
+	approved := h.ready(t, h.newUpload(t, "already-approved", []byte("approved content")))
+	if _, e = h.s.Reject(h.ctx, user, approved.ID, "reject-approved", media.ReasonPolicyViolation); !errors.Is(e, media.ErrConflict) {
+		t.Fatal("rejected an already approved version", e)
+	}
+	ref, e := h.s.Attach(h.ctx, user, submitted.ID, "bind-submission", media.Binding{Module: "fixture", ResourceID: "submission-1"})
+	must(t, e)
+	if ref.State != "pending" {
+		t.Fatal("unexpected reference state", ref.State)
+	}
+
+	h.clock.Add(2 * time.Hour)
+	for n := 0; n < 3; n++ {
+		h.cycle(t)
+	}
+
+	orphanView, e := h.s.GetVersion(h.ctx, user, orphan.ID)
+	must(t, e)
+	if orphanView.State != "expired" || !orphanView.CleanupComplete {
+		t.Fatalf("orphan should expire after UnreferencedTTL: %+v", orphanView)
+	}
+	submittedView, e := h.s.GetVersion(h.ctx, user, submitted.ID)
+	must(t, e)
+	if submittedView.State != "awaiting_approval" || submittedView.CleanupComplete {
+		t.Fatalf("bound pending version expired prematurely: %+v", submittedView)
+	}
+
+	if _, e = h.s.Reject(h.ctx, user, submitted.ID, "bad-reason", "unknown_reason"); !errors.Is(e, media.ErrInput) {
+		t.Fatal("accepted unknown rejection reason", e)
+	}
+	unverified, e := h.s.CreateUpload(h.ctx, user, "unverified", request([]byte("not uploaded yet")))
+	must(t, e)
+	if _, e = h.s.Reject(h.ctx, user, unverified.ID, "reject-created", media.ReasonPolicyViolation); !errors.Is(e, media.ErrConflict) {
+		t.Fatal("rejected unuploaded session", e)
+	}
+	h.policy.deny("media.versions.reject", true)
+	if _, e = h.s.Reject(h.ctx, user, submitted.ID, "denied-reject", media.ReasonCopyrightViolation); !errors.Is(e, media.ErrDenied) {
+		t.Fatal("unauthorized rejection succeeded", e)
+	}
+	h.policy.deny("media.versions.reject", false)
+
+	rejected, e := h.s.Reject(h.ctx, user, submitted.ID, "reject-key", media.ReasonCopyrightViolation)
+	must(t, e)
+	if rejected.State != "rejected" || rejected.RejectionReason != media.ReasonCopyrightViolation || rejected.ErrorCode != "media_rejected_copyright_violation" {
+		t.Fatalf("unexpected rejected version: %+v", rejected)
+	}
+	replay, e := h.s.Reject(h.ctx, user, submitted.ID, "reject-key", media.ReasonCopyrightViolation)
+	must(t, e)
+	if replay.Revision != rejected.Revision || replay.RejectionReason != media.ReasonCopyrightViolation {
+		t.Fatal("rejection replay changed state")
+	}
+	if _, e = h.s.Reject(h.ctx, user, submitted.ID, "reject-key", media.ReasonWrongCourse); !errors.Is(e, media.ErrConflict) {
+		t.Fatal("same idempotency key accepted different reason", e)
+	}
+	sameReasonNewKey, e := h.s.Reject(h.ctx, user, submitted.ID, "reject-key-2", media.ReasonCopyrightViolation)
+	must(t, e)
+	if sameReasonNewKey.Revision != rejected.Revision {
+		t.Fatal("idempotent same-reason rejection incremented revision")
+	}
+	if _, e = h.s.Reject(h.ctx, user, submitted.ID, "reject-key-3", media.ReasonWrongCourse); !errors.Is(e, media.ErrConflict) {
+		t.Fatal("different rejection reason overwrote terminal reason", e)
+	}
+	if _, e = h.s.Approve(h.ctx, user, submitted.ID, "approve-after-reject"); !errors.Is(e, media.ErrConflict) {
+		t.Fatal("approved a rejected version", e)
+	}
+	refAfter, e := h.s.GetReference(h.ctx, user, ref.ID)
+	must(t, e)
+	if refAfter.State != "released" {
+		t.Fatalf("pending reference not released on rejection: %+v", refAfter)
+	}
+
+	for n := 0; n < 5; n++ {
+		h.cycle(t)
+	}
+	cleaned, e := h.s.GetVersion(h.ctx, user, submitted.ID)
+	must(t, e)
+	if !cleaned.CleanupComplete || cleaned.State != "rejected" || cleaned.RejectionReason != media.ReasonCopyrightViolation {
+		t.Fatalf("rejected version did not finish physical cleanup: %+v", cleaned)
+	}
+
+	var rejectedEvents int
+	must(t, h.db.QueryRow(`SELECT count(*) FROM media.outbox WHERE data->>'type'='media.version.rejected.v1' AND data->>'subject'=$1`, submitted.ID).Scan(&rejectedEvents))
+	if rejectedEvents != 1 {
+		t.Fatalf("expected 1 media.version.rejected.v1 event, got %d", rejectedEvents)
+	}
+}

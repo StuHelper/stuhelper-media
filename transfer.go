@@ -165,6 +165,7 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		case e == nil:
 			current.State = "awaiting_approval"
 			current.ErrorCode = ""
+			s.extendPendingRetention(&current)
 		case errors.Is(e, ErrIntegrity) || errors.Is(e, ErrType):
 			current.State = "rejected"
 			current.ErrorCode = e.Error()

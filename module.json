@@ -48,6 +48,10 @@
       "reuse_test.go#TestReuseRequiresCurrentSourceRightsAndProfile",
       "reuse_test.go#TestReuseLostResponseAndRestartDoNotResendOrApprove",
       "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle"
+    ],
+    "MEDIA-13": [
+      "integration_test.go#TestVersionRejectionReasonCleanupAndPendingApprovalRetention",
+      "http_test.go#TestHTTPRejectVersionIdempotencyAndValidation"
     ]
   }
 }
