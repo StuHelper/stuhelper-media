@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -20,6 +21,9 @@ type authenticate struct{}
 func (authenticate) Authenticate(r *http.Request) (media.Principal, error) {
 	if r.Header.Get("Authorization") == "Bearer fixture-owner" {
 		return user, nil
+	}
+	if r.Header.Get("Authorization") == "Bearer fixture-maintenance" {
+		return system, nil
 	}
 	return media.Principal{}, media.ErrDenied
 }
@@ -97,6 +101,67 @@ func TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent(t *testing.T) 
 	must(t, e)
 	if denied.StatusCode != 403 || bytes.Contains(b, data) || denied.Header.Get("Content-Disposition") != "" {
 		t.Fatal("denial leaked content", denied.StatusCode)
+	}
+}
+
+func TestHTTPOperationsRetryPruneAndTraceObservation(t *testing.T) {
+	h := newFixture(t)
+	var traceMu sync.Mutex
+	var traceSeen string
+	must(t, h.s.Close(h.ctx))
+	cfg := h.cfg
+	cfg.Observer = media.ObserverFunc(func(_ context.Context, o media.Observation) {
+		if o.Operation == "media.operations.read" && o.TraceID != "" {
+			traceMu.Lock()
+			traceSeen = o.TraceID
+			traceMu.Unlock()
+		}
+	})
+	var e error
+	h.s, e = media.New(h.repo, h.policy, h.store, cfg)
+	must(t, e)
+
+	handler, e := httpapi.New(h.s, authenticate{}, 1<<20)
+	must(t, e)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	userClient, e := sdk.NewClientWithResponses(server.URL, sdk.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
+		r.Header.Set("Authorization", "Bearer fixture-owner")
+		return nil
+	}))
+	must(t, e)
+	opsClient, e := sdk.NewClientWithResponses(server.URL, sdk.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
+		r.Header.Set("Authorization", "Bearer fixture-maintenance")
+		r.Header.Set("Traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+		return nil
+	}))
+	must(t, e)
+
+	_ = h.newUpload(t, "http-ops-file", []byte("ops check"))
+
+	forbidden, e := userClient.GetOperationsWithResponse(h.ctx, nil)
+	must(t, e)
+	if forbidden.StatusCode() != 403 {
+		t.Fatal("expected 403 for non-maintenance principal", forbidden.StatusCode())
+	}
+
+	opsRes, e := opsClient.GetOperationsWithResponse(h.ctx, nil)
+	must(t, e)
+	if opsRes.StatusCode() != 200 || opsRes.JSON200 == nil || opsRes.JSON200.Outbox.Pending == 0 {
+		t.Fatalf("unexpected GetOperations response: %d %s", opsRes.StatusCode(), string(opsRes.Body))
+	}
+	traceMu.Lock()
+	gotTrace := traceSeen
+	traceMu.Unlock()
+	if gotTrace != "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" {
+		t.Fatalf("Traceparent header not propagated to observer: %q", gotTrace)
+	}
+
+	pruneRes, e := opsClient.PruneHistoryWithResponse(h.ctx, sdk.PruneRequest{Limit: 10})
+	must(t, e)
+	if pruneRes.StatusCode() != 200 || pruneRes.JSON200 == nil {
+		t.Fatalf("unexpected PruneHistory response: %d %s", pruneRes.StatusCode(), string(pruneRes.Body))
 	}
 }
 func mustJSON(t *testing.T, v any) []byte { t.Helper(); b, e := json.Marshal(v); must(t, e); return b }

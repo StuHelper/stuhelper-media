@@ -63,7 +63,9 @@ func (s *Service) Sweep(ctx context.Context, n int, after string) (string, error
 	}
 	return "", nil
 }
-func (s *Service) RunOne(ctx context.Context, worker string) (bool, error) {
+func (s *Service) RunOne(ctx context.Context, worker string) (ran bool, retErr error) {
+	started := s.now()
+	defer func() { s.observe(ctx, "media.jobs.run", started, retErr) }()
 	if !idOK(worker) {
 		return false, ErrInput
 	}

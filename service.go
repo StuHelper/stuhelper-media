@@ -41,6 +41,12 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 	if c.MaxArchiveFiles < 1 || c.MaxArchiveFiles > 100 || c.MaxArchiveBytes < 1 || c.MaxArchiveBytes > 1<<30 {
 		return nil, ErrInput
 	}
+	if c.HistoryRetention == 0 {
+		c.HistoryRetention = 24 * time.Hour
+	}
+	if c.HistoryRetention < time.Minute || c.HistoryRetention > 365*24*time.Hour {
+		return nil, ErrInput
+	}
 	profiles := make(map[string]Profile, len(c.Profiles))
 	for name, p := range c.Profiles {
 		if !idOK(name) || !idOK(p.Module) || !p.Quarantine.Valid() || p.Quarantine.Public || !p.Published.Valid() || p.Published.Scope != p.Quarantine.Scope || (!p.Published.Public && p.Published != p.Quarantine) || p.MaxSize < 1 || p.MaxSize > 1<<30 || len(p.AllowedTypes) == 0 || len(p.AllowedTypes) > 32 {
@@ -169,7 +175,7 @@ func (s *Service) mutation(ctx context.Context, p Principal, action, id, key str
 		if e != nil {
 			return ErrUnavailable
 		}
-		if e = tx.SaveReplay(Replay{Key: op, Digest: fingerprint, Result: b}); e != nil {
+		if e = tx.SaveReplay(Replay{Key: op, Digest: fingerprint, Result: b, CreatedAt: s.now().UTC()}); e != nil {
 			return e
 		}
 		return json.Unmarshal(b, out)
@@ -211,14 +217,15 @@ func (s *Service) save(tx Transaction, p Principal, v Version, kind string) erro
 func validFilename(v string) bool {
 	return utf8.ValidString(v) && len(v) > 0 && len(v) <= 240 && v != "." && v != ".." && !strings.ContainsAny(v, "/\\") && strings.IndexFunc(v, unicode.IsControl) < 0
 }
-func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r UploadRequest) (Version, error) {
-	var out Version
+func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r UploadRequest) (out Version, e error) {
+	started := s.now()
+	defer func() { s.observe(ctx, "media.uploads.create", started, e) }()
 	profile, ok := s.cfg.Profiles[r.Purpose]
 	if !ok || !validFilename(r.Filename) || !slices.Contains(profile.AllowedTypes, r.ContentType) || r.Size < 1 || r.Size > profile.MaxSize || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
 		return out, ErrInput
 	}
 	var f File
-	e := s.mutation(ctx, p, "media.uploads.create", r.FileID, key, r, func(tx Transaction) error {
+	e = s.mutation(ctx, p, "media.uploads.create", r.FileID, key, r, func(tx Transaction) error {
 		if e := tx.Lock("owner:" + hash(p)); e != nil {
 			return e
 		}
@@ -296,9 +303,11 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 	}
 	return out, e
 }
-func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (VersionView, error) {
+func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (out VersionView, e error) {
+	started := s.now()
+	defer func() { s.observe(ctx, "media.versions.read", started, e) }()
 	var v Version
-	e := s.repo.Transaction(ctx, func(tx Transaction) error {
+	e = s.repo.Transaction(ctx, func(tx Transaction) error {
 		f, current, e := s.load(tx, id)
 		if e != nil {
 			return e
@@ -306,18 +315,20 @@ func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (Versi
 		v = current
 		return s.authorize(ctx, p, "media.files.read", access(f, v, nil))
 	})
-	out := VersionView{Version: v, Desired: 3}
+	out = VersionView{Version: v, Desired: 3}
 	if e != nil {
 		return out, e
 	}
 	if v.ObjectID != "" {
-		st, e := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
-		if e == nil {
+		stStarted := s.now()
+		st, stErr := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
+		if stErr == nil {
 			out.StorageState = st.State
 			out.Healthy = st.Healthy
 			out.Desired = st.Desired
 		} else {
 			out.StorageState = "unavailable"
+			s.observe(ctx, "media.storage.status", stStarted, storeError(stErr))
 		}
 	}
 	return out, nil

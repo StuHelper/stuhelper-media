@@ -29,6 +29,36 @@ func New(s *media.Service, a Authenticator, max int64) (http.Handler, error) {
 	}
 	h := &handler{s, a, max}
 	m := http.NewServeMux()
+	h.mount(m, "GET /api/v1/media/operations", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		limit := 50
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			var e error
+			limit, e = strconv.Atoi(raw)
+			if e != nil {
+				return nil, media.ErrInput
+			}
+		}
+		for name, values := range r.URL.Query() {
+			if len(values) != 1 || (name != "limit" && name != "failures_after") {
+				return nil, media.ErrInput
+			}
+		}
+		return s.Operations(r.Context(), p, limit, r.URL.Query().Get("failures_after"))
+	})
+	h.mount(m, "POST /api/v1/media/operations/jobs/{version_id}/retry", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		var q media.RetryJobRequest
+		if e := decode(r, &q); e != nil {
+			return nil, e
+		}
+		return s.RetryJob(r.Context(), p, r.PathValue("version_id"), r.Header.Get("Idempotency-Key"), q.Generation)
+	})
+	h.mount(m, "POST /api/v1/media/operations/prune", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		var q media.PruneRequest
+		if e := decode(r, &q); e != nil {
+			return nil, e
+		}
+		return s.PruneAs(r.Context(), p, q.Limit)
+	})
 	h.mount(m, "POST /api/v1/media/uploads", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
 		var q media.UploadRequest
 		if e := decode(r, &q); e != nil {
@@ -158,6 +188,11 @@ func (h *handler) mount(m *http.ServeMux, path string, upload bool, run endpoint
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 		defer cancel()
+		if trace := r.Header.Get("Traceparent"); trace != "" {
+			ctx = media.WithTraceID(ctx, trace)
+		} else if reqID := r.Header.Get("X-Request-Id"); reqID != "" {
+			ctx = media.WithTraceID(ctx, reqID)
+		}
 		r = r.WithContext(ctx)
 		controller := http.NewResponseController(w)
 		deadline, _ := ctx.Deadline()
