@@ -16,8 +16,23 @@ func (s *Service) ArchiveLimits() (files int, bytes int64) {
 }
 
 func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor string) (FilePage, error) {
+	return s.ListFilesFiltered(ctx, p, FileListFilter{Limit: limit, Cursor: cursor})
+}
+
+func (s *Service) ListFilesFiltered(ctx context.Context, p Principal, filter FileListFilter) (FilePage, error) {
 	out := FilePage{Items: []File{}}
-	if limit < 1 || limit > 100 || (cursor != "" && !idOK(cursor)) {
+	if filter.Limit < 1 || filter.Limit > 100 {
+		return out, ErrInput
+	}
+	if filter.Cursor != "" {
+		if _, _, err := ParseFileCursor(filter.Cursor); err != nil {
+			return out, ErrInput
+		}
+	}
+	if filter.Purpose != "" && !idOK(filter.Purpose) {
+		return out, ErrInput
+	}
+	if filter.State != "" && !ValidVersionState(filter.State) {
 		return out, ErrInput
 	}
 	if !p.Valid() {
@@ -26,26 +41,59 @@ func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor 
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
 	defer cancel()
 	err := s.repo.Transaction(ctx, func(tx Transaction) error {
-		rows, e := tx.Files(p, limit, cursor)
-		if e != nil {
-			return e
-		}
-		for _, f := range rows {
-			if f.Owner != p {
-				return ErrUnavailable
-			}
-			// Authorization receives the persisted owner and purpose, just as file detail does.
-			e = s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: f.Protection})
-			if errors.Is(e, ErrDenied) {
-				continue
-			}
+		maxScan := min(5*filter.Limit, 500)
+		scanned := 0
+		cur := filter.Cursor
+		lastCursor := ""
+		exhausted := false
+		for len(out.Items) < filter.Limit && scanned < maxScan {
+			batchSize := min(filter.Limit, maxScan-scanned)
+			rows, e := tx.Files(p, FileListFilter{
+				Limit:   batchSize,
+				Cursor:  cur,
+				Purpose: filter.Purpose,
+				State:   filter.State,
+			})
 			if e != nil {
 				return e
 			}
-			out.Items = append(out.Items, f.File)
+			if len(rows) == 0 {
+				exhausted = true
+				break
+			}
+			for i, f := range rows {
+				if f.Owner != p {
+					return ErrUnavailable
+				}
+				scanned++
+				lastCursor = FormatFileCursor(f.CreatedAt, f.ID)
+				// Authorization receives the persisted owner and purpose, just as file detail does.
+				e = s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: f.Protection})
+				if errors.Is(e, ErrDenied) {
+					continue
+				}
+				if e != nil {
+					return e
+				}
+				out.Items = append(out.Items, f.File)
+				if len(out.Items) == filter.Limit {
+					if i == len(rows)-1 && len(rows) < batchSize {
+						exhausted = true
+					}
+					break
+				}
+			}
+			if len(out.Items) == filter.Limit {
+				break
+			}
+			if len(rows) < batchSize {
+				exhausted = true
+				break
+			}
+			cur = lastCursor
 		}
-		if len(rows) == limit {
-			out.NextCursor = rows[len(rows)-1].ID
+		if !exhausted && lastCursor != "" {
+			out.NextCursor = lastCursor
 		}
 		return nil
 	})

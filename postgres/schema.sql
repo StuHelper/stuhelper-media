@@ -1,9 +1,13 @@
 CREATE SCHEMA IF NOT EXISTS media;
 CREATE TABLE IF NOT EXISTS media.files (
- id text PRIMARY KEY, owner_key text NOT NULL, data jsonb NOT NULL
+ id text PRIMARY KEY, owner_key text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), data jsonb NOT NULL
 );
+ALTER TABLE media.files ADD COLUMN IF NOT EXISTS created_at timestamptz;
+UPDATE media.files SET created_at = COALESCE((data->>'created_at')::timestamptz, now()) WHERE created_at IS NULL;
+ALTER TABLE media.files ALTER COLUMN created_at SET NOT NULL;
 CREATE INDEX IF NOT EXISTS media_files_owner ON media.files(owner_key);
 CREATE INDEX IF NOT EXISTS media_files_owner_cursor ON media.files(owner_key,id);
+CREATE INDEX IF NOT EXISTS media_files_owner_created_cursor ON media.files(owner_key,created_at DESC,id DESC);
 CREATE TABLE IF NOT EXISTS media.versions (
  id text PRIMARY KEY, file_id text NOT NULL REFERENCES media.files(id),
  upload_id text NOT NULL UNIQUE, number integer NOT NULL, state text NOT NULL,

@@ -35,7 +35,8 @@
       "archive_test.go#TestArchiveManifestCurrentRightsAndSingleTransferSlot"
     ],
     "MEDIA-09": [
-      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission"
+      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission",
+      "http_test.go#TestHTTPListFilesSummaryOrderAndFilters"
     ],
     "MEDIA-10": [
       "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission"

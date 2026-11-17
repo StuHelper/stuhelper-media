@@ -248,7 +248,7 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 			return nil, ErrCapacity
 		}
 		if r.FileID == "" {
-			f = File{ID: newID(), Owner: p, Purpose: r.Purpose, Revision: 1, CreatedAt: s.now()}
+			f = File{ID: newID(), Owner: p, Purpose: r.Purpose, Revision: 1, CreatedAt: s.now().UTC().Truncate(time.Microsecond)}
 		}
 		if f.NextVersion >= s.cfg.MaxVersions {
 			return nil, ErrCapacity

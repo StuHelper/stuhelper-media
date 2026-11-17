@@ -62,11 +62,16 @@ func New(s *media.Service, a Authenticator, max int64) (http.Handler, error) {
 			}
 		}
 		for name, values := range r.URL.Query() {
-			if len(values) != 1 || (name != "limit" && name != "cursor") {
+			if len(values) != 1 || (name != "limit" && name != "cursor" && name != "purpose" && name != "state") {
 				return nil, media.ErrInput
 			}
 		}
-		return s.ListFiles(r.Context(), p, limit, r.URL.Query().Get("cursor"))
+		return s.ListFilesFiltered(r.Context(), p, media.FileListFilter{
+			Limit:   limit,
+			Cursor:  r.URL.Query().Get("cursor"),
+			Purpose: r.URL.Query().Get("purpose"),
+			State:   r.URL.Query().Get("state"),
+		})
 	})
 	h.mount(m, "POST /api/v1/media/archives/manifest", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
 		var q media.ArchiveRequest

@@ -360,6 +360,18 @@ export interface components {
             /** Format: int64 */
             total_size: number;
         };
+        VersionSummary: {
+            id: string;
+            /** Format: int64 */
+            number: number;
+            filename: string;
+            content_type: string;
+            /** Format: int64 */
+            size: number;
+            state: string;
+            approved: boolean;
+            error_code: string;
+        };
         File: {
             id: string;
             purpose: string;
@@ -369,6 +381,9 @@ export interface components {
             revision: number;
             /** Format: date-time */
             created_at: string;
+            /** Format: int64 */
+            version_count: number;
+            latest_version: components["schemas"]["VersionSummary"];
         };
     };
     responses: never;
@@ -1862,6 +1877,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string;
+                purpose?: string;
+                state?: "created" | "uploading" | "verifying" | "awaiting_approval" | "approved" | "ready" | "cancelled" | "expired" | "rejected" | "deleting" | "deleted";
             };
             header?: never;
             path?: never;

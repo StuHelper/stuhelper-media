@@ -8,9 +8,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	storage "github.com/StuHelper/stuhelper-storage"
 	"io"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -69,15 +72,27 @@ type Config struct {
 	MaxArchiveFiles                                                                 int
 	MaxArchiveBytes                                                                 int64
 }
+type VersionSummary struct {
+	ID          string `json:"id"`
+	Number      int    `json:"number"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	State       string `json:"state"`
+	Approved    bool   `json:"approved"`
+	ErrorCode   string `json:"error_code"`
+}
 type File struct {
-	ID          string    `json:"id"`
-	Owner       Principal `json:"-"`
-	Purpose     string    `json:"purpose"`
-	Disabled    bool      `json:"disabled"`
-	Deleting    bool      `json:"deleting"`
-	Revision    int64     `json:"revision"`
-	NextVersion int       `json:"-"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID            string          `json:"id"`
+	Owner         Principal       `json:"-"`
+	Purpose       string          `json:"purpose"`
+	Disabled      bool            `json:"disabled"`
+	Deleting      bool            `json:"deleting"`
+	Revision      int64           `json:"revision"`
+	NextVersion   int             `json:"-"`
+	CreatedAt     time.Time       `json:"created_at"`
+	VersionCount  int             `json:"version_count,omitempty"`
+	LatestVersion *VersionSummary `json:"latest_version,omitempty"`
 }
 type Version struct {
 	Reused          bool      `json:"reused,omitempty"`
@@ -140,6 +155,13 @@ type FileView struct {
 	File
 	Versions []Version `json:"versions"`
 }
+type FileListFilter struct {
+	Limit   int
+	Cursor  string
+	Purpose string
+	State   string
+}
+
 type FileListing struct {
 	File
 	Protection Protection
@@ -203,7 +225,7 @@ type Transaction interface {
 	ReuseCandidates(Principal, UploadRequest) ([]Version, error)
 	Lock(string) error
 	File(string) (File, error)
-	Files(Principal, int, string) ([]FileListing, error)
+	Files(Principal, FileListFilter) ([]FileListing, error)
 	SaveFile(File) error
 	Version(string) (Version, error)
 	Upload(string) (Version, error)
@@ -235,6 +257,39 @@ func hash(v any) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:])
 }
+func ValidVersionState(state string) bool {
+	switch state {
+	case "created", "uploading", "verifying", "awaiting_approval", "approved", "ready",
+		"cancelled", "expired", "rejected", "deleting", "deleted":
+		return true
+	default:
+		return false
+	}
+}
+
+func FormatFileCursor(createdAt time.Time, id string) string {
+	return fmt.Sprintf("%d.%s", createdAt.UTC().UnixMicro(), id)
+}
+
+func ParseFileCursor(raw string) (time.Time, string, error) {
+	if raw == "" || len(raw) > 128 {
+		return time.Time{}, "", ErrInput
+	}
+	dot := strings.IndexByte(raw, '.')
+	if dot <= 0 || dot >= len(raw)-1 {
+		return time.Time{}, "", ErrInput
+	}
+	micros, err := strconv.ParseInt(raw[:dot], 10, 64)
+	if err != nil || micros <= 0 {
+		return time.Time{}, "", ErrInput
+	}
+	id := raw[dot+1:]
+	if !idOK(id) {
+		return time.Time{}, "", ErrInput
+	}
+	return time.UnixMicro(micros).UTC(), id, nil
+}
+
 func terminal(v Version) bool {
 	return v.State == "cancelled" || v.State == "expired" || v.State == "rejected" || v.State == "deleting" || v.State == "deleted"
 }

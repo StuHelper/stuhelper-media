@@ -17,6 +17,51 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ListFilesParamsState.
+const (
+	Approved         ListFilesParamsState = "approved"
+	AwaitingApproval ListFilesParamsState = "awaiting_approval"
+	Cancelled        ListFilesParamsState = "cancelled"
+	Created          ListFilesParamsState = "created"
+	Deleted          ListFilesParamsState = "deleted"
+	Deleting         ListFilesParamsState = "deleting"
+	Expired          ListFilesParamsState = "expired"
+	Ready            ListFilesParamsState = "ready"
+	Rejected         ListFilesParamsState = "rejected"
+	Uploading        ListFilesParamsState = "uploading"
+	Verifying        ListFilesParamsState = "verifying"
+)
+
+// Valid indicates whether the value is a known member of the ListFilesParamsState enum.
+func (e ListFilesParamsState) Valid() bool {
+	switch e {
+	case Approved:
+		return true
+	case AwaitingApproval:
+		return true
+	case Cancelled:
+		return true
+	case Created:
+		return true
+	case Deleted:
+		return true
+	case Deleting:
+		return true
+	case Expired:
+		return true
+	case Ready:
+		return true
+	case Rejected:
+		return true
+	case Uploading:
+		return true
+	case Verifying:
+		return true
+	default:
+		return false
+	}
+}
+
 // ArchiveEntry defines model for ArchiveEntry.
 type ArchiveEntry struct {
 	Filename    string `json:"filename"`
@@ -46,12 +91,14 @@ type Binding struct {
 
 // File defines model for File.
 type File struct {
-	CreatedAt time.Time `json:"created_at"`
-	Deleting  bool      `json:"deleting"`
-	Disabled  bool      `json:"disabled"`
-	Id        string    `json:"id"`
-	Purpose   string    `json:"purpose"`
-	Revision  int64     `json:"revision"`
+	CreatedAt     time.Time      `json:"created_at"`
+	Deleting      bool           `json:"deleting"`
+	Disabled      bool           `json:"disabled"`
+	Id            string         `json:"id"`
+	LatestVersion VersionSummary `json:"latest_version"`
+	Purpose       string         `json:"purpose"`
+	Revision      int64          `json:"revision"`
+	VersionCount  int64          `json:"version_count"`
 }
 
 // FilePage defines model for FilePage.
@@ -135,6 +182,18 @@ type Version struct {
 	UploadId        string    `json:"upload_id"`
 }
 
+// VersionSummary defines model for VersionSummary.
+type VersionSummary struct {
+	Approved    bool   `json:"approved"`
+	ContentType string `json:"content_type"`
+	ErrorCode   string `json:"error_code"`
+	Filename    string `json:"filename"`
+	Id          string `json:"id"`
+	Number      int64  `json:"number"`
+	Size        int64  `json:"size"`
+	State       string `json:"state"`
+}
+
 // VersionView defines model for VersionView.
 type VersionView struct {
 	Approved bool `json:"approved"`
@@ -164,9 +223,14 @@ type VersionView struct {
 
 // ListFilesParams defines parameters for ListFiles.
 type ListFilesParams struct {
-	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit   *int                  `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor  *string               `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Purpose *string               `form:"purpose,omitempty" json:"purpose,omitempty"`
+	State   *ListFilesParamsState `form:"state,omitempty" json:"state,omitempty"`
 }
+
+// ListFilesParamsState defines parameters for ListFiles.
+type ListFilesParamsState string
 
 // DeleteFileParams defines parameters for DeleteFile.
 type DeleteFileParams struct {
@@ -827,6 +891,30 @@ func NewListFilesRequest(server string, params *ListFilesParams) (*http.Request,
 		if params.Cursor != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Purpose != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "purpose", *params.Purpose, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {

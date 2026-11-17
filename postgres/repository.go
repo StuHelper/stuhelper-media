@@ -139,12 +139,22 @@ func (t *transaction) File(id string) (media.File, error) {
 	r.File.NextVersion = r.NextVersion
 	return r.File, e
 }
-func (t *transaction) Files(p media.Principal, limit int, cursor string) ([]media.FileListing, error) {
+func (t *transaction) Files(p media.Principal, filter media.FileListFilter) ([]media.FileListing, error) {
 	type row struct {
 		fileRecord
 		Protection media.Protection `json:"protection"`
 	}
-	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protection',v.data->'profile'->'published') FROM media.files f JOIN LATERAL (SELECT data FROM media.versions WHERE file_id=f.id ORDER BY number LIMIT 1) v ON true WHERE owner_key=$1 AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
+	noCursor := filter.Cursor == ""
+	cursorTime := time.Time{}
+	cursorID := ""
+	if !noCursor {
+		var err error
+		cursorTime, cursorID, err = media.ParseFileCursor(filter.Cursor)
+		if err != nil {
+			return nil, err
+		}
+	}
+	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protection',first_v.data->'profile'->'published','version_count',counts.cnt,'latest_version',jsonb_build_object('id',latest_v.data->>'id','number',latest_v.number,'filename',latest_v.data->>'filename','content_type',latest_v.data->>'content_type','size',(latest_v.data->>'size')::bigint,'state',latest_v.state,'approved',(latest_v.data->>'approved')::boolean,'error_code',COALESCE(latest_v.data->>'error_code',''))) FROM media.files f JOIN LATERAL (SELECT data FROM media.versions WHERE file_id=f.id ORDER BY number ASC LIMIT 1) first_v ON true JOIN LATERAL (SELECT number,state,data FROM media.versions WHERE file_id=f.id ORDER BY number DESC LIMIT 1) latest_v ON true JOIN LATERAL (SELECT count(*)::int AS cnt FROM media.versions WHERE file_id=f.id) counts ON true WHERE f.owner_key=$1 AND ($2::boolean OR (f.created_at,f.id)<($3::timestamptz,$4)) AND ($5='' OR f.data->>'purpose'=$5) AND ($6='' OR latest_v.state=$6) ORDER BY f.created_at DESC,f.id DESC LIMIT $7`, owner(p), noCursor, cursorTime, cursorID, filter.Purpose, filter.State, filter.Limit)
 	out := []media.FileListing{}
 	for _, r := range rows {
 		f := r.File
@@ -155,7 +165,11 @@ func (t *transaction) Files(p media.Principal, limit int, cursor string) ([]medi
 	return out, e
 }
 func (t *transaction) SaveFile(v media.File) error {
-	return t.save(`INSERT INTO media.files(id,owner_key,data) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, fileRecord{v, v.Owner, v.NextVersion}, v.ID, owner(v.Owner))
+	clean := v
+	clean.CreatedAt = clean.CreatedAt.UTC().Truncate(time.Microsecond)
+	clean.VersionCount = 0
+	clean.LatestVersion = nil
+	return t.save(`INSERT INTO media.files(id,owner_key,created_at,data) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, fileRecord{clean, clean.Owner, clean.NextVersion}, clean.ID, owner(clean.Owner), clean.CreatedAt)
 }
 func (t *transaction) Version(id string) (media.Version, error) {
 	v, e := read[versionRecord](t, `SELECT data FROM media.versions WHERE id=$1`, id)
