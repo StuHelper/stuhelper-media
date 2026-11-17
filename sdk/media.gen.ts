@@ -176,7 +176,7 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        head: operations["HeadReference"];
         patch?: never;
         trace?: never;
     };
@@ -345,6 +345,7 @@ export interface components {
         };
         ArchiveRequest: {
             references: string[];
+            filename?: string;
         };
         ArchiveEntry: {
             reference_id: string;
@@ -359,6 +360,8 @@ export interface components {
             entries: components["schemas"]["ArchiveEntry"][];
             /** Format: int64 */
             total_size: number;
+            /** Format: int64 */
+            estimated_zip_bytes: number;
         };
         File: {
             id: string;
@@ -1756,8 +1759,14 @@ export interface operations {
     };
     DownloadReference: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                disposition?: "attachment" | "inline";
+            };
+            header?: {
+                "If-None-Match"?: string;
+                "If-Range"?: string;
+                Range?: string;
+            };
             path: {
                 id: string;
             };
@@ -1768,11 +1777,162 @@ export interface operations {
             /** @description Current state or replay result. Pending publication does not grant access. */
             200: {
                 headers: {
+                    ETag?: string;
+                    "Accept-Ranges"?: string;
+                    "Content-Disposition"?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/octet-stream": string;
                 };
+            };
+            /** @description Verified byte range for an active authorized reference. */
+            206: {
+                headers: {
+                    ETag?: string;
+                    "Accept-Ranges"?: string;
+                    "Content-Range"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Content unchanged for a currently authorized caller. */
+            304: {
+                headers: {
+                    ETag?: string;
+                    "Accept-Ranges"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Sanitized failure */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsatisfiable byte range */
+            416: {
+                headers: {
+                    "Content-Range"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    HeadReference: {
+        parameters: {
+            query?: {
+                disposition?: "attachment" | "inline";
+            };
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Metadata headers for currently authorized reference content. */
+            200: {
+                headers: {
+                    ETag?: string;
+                    "Accept-Ranges"?: string;
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Content unchanged for a currently authorized caller. */
+            304: {
+                headers: {
+                    ETag?: string;
+                    "Accept-Ranges"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Sanitized failure */
             400: {

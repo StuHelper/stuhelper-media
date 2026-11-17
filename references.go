@@ -97,6 +97,23 @@ func (s *Service) ReferenceVersion(ctx context.Context, p Principal, id string) 
 	})
 	return out, e
 }
+func (s *Service) InspectReferenceDownload(ctx context.Context, p Principal, id string) (Version, error) {
+	v, e := s.ReferenceVersion(ctx, p, id)
+	if e != nil {
+		return Version{}, e
+	}
+	st, e := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
+	if e != nil {
+		return Version{}, storeError(e)
+	}
+	if st.Protection != v.Profile.Published {
+		return Version{}, ErrDenied
+	}
+	if st.Healthy < 1 {
+		return Version{}, ErrUnavailable
+	}
+	return v, nil
+}
 func (s *Service) Release(ctx context.Context, p Principal, id, key string) (Reference, error) {
 	var out, r Reference
 	var f File

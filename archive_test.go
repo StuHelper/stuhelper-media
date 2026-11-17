@@ -32,6 +32,9 @@ func TestArchiveManifestCurrentRightsAndSingleTransferSlot(t *testing.T) {
 	}
 	var body bytes.Buffer
 	must(t, one.Archive(h.ctx, user, ids, &body))
+	if manifest.EstimatedZipBytes != int64(body.Len()) {
+		t.Fatalf("estimated_zip_bytes=%d actual=%d", manifest.EstimatedZipBytes, body.Len())
+	}
 	z, e := zip.NewReader(bytes.NewReader(body.Bytes()), int64(body.Len()))
 	must(t, e)
 	if len(z.File) != 3 {

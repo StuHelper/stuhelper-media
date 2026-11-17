@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ArchiveLimits returns the configured limits so a composing business service
@@ -75,7 +78,76 @@ func (s *Service) ArchiveManifest(ctx context.Context, p Principal, ids []string
 		out.TotalSize += v.Size
 		out.Entries = append(out.Entries, ArchiveEntry{ReferenceID: id, VersionID: v.ID, Path: fmt.Sprintf("files/%03d/%s", n+1, v.Filename), Filename: v.Filename, Size: v.Size, SHA256: v.SHA256})
 	}
+	out.EstimatedZipBytes = estimateArchiveZipBytes(out)
+	out.EstimatedZipBytes = estimateArchiveZipBytes(out)
 	return out, nil
+}
+
+type countingDiscard int64
+
+func (c *countingDiscard) Write(p []byte) (int, error) {
+	*c += countingDiscard(len(p))
+	return len(p), nil
+}
+
+func estimateArchiveZipBytes(m ArchiveManifest) int64 {
+	var overhead countingDiscard
+	z := zip.NewWriter(&overhead)
+	for _, entry := range m.Entries {
+		_, _ = z.CreateHeader(&zip.FileHeader{Name: entry.Path, Method: zip.Store})
+	}
+	if w, err := z.CreateHeader(&zip.FileHeader{Name: "manifest.json", Method: zip.Store}); err == nil {
+		_ = json.NewEncoder(w).Encode(m)
+	}
+	_ = z.Close()
+	return int64(overhead) + m.TotalSize
+}
+
+func SanitizeArchiveFilename(raw string) (string, error) {
+	if raw == "" {
+		return "files.zip", nil
+	}
+	if !utf8.ValidString(raw) || len(raw) > 240 {
+		return "", ErrInput
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", ErrInput
+	}
+	if len(trimmed) >= 4 && strings.EqualFold(trimmed[len(trimmed)-4:], ".zip") {
+		trimmed = trimmed[:len(trimmed)-4]
+	}
+	var b strings.Builder
+	for _, r := range trimmed {
+		if r < 32 || unicode.IsControl(r) || strings.ContainsRune(`<>:"/\|?*`, r) {
+			b.WriteByte('_')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	cleaned := strings.Trim(b.String(), " .")
+	if cleaned == "" {
+		return "", ErrInput
+	}
+	stem := cleaned
+	if dot := strings.IndexByte(stem, '.'); dot >= 0 {
+		stem = stem[:dot]
+	}
+	switch strings.ToUpper(stem) {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		cleaned = "_" + cleaned
+	}
+	for len(cleaned) > 200 {
+		_, size := utf8.DecodeLastRuneInString(cleaned)
+		cleaned = cleaned[:len(cleaned)-size]
+	}
+	cleaned = strings.Trim(cleaned, " .")
+	if cleaned == "" {
+		return "", ErrInput
+	}
+	return cleaned + ".zip", nil
 }
 
 // Archive streams verified entries without retaining archive bytes. A single
