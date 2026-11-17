@@ -70,7 +70,7 @@ func (s *Service) ArchiveManifest(ctx context.Context, p Principal, ids []string
 			return ArchiveManifest{}, e
 		}
 		if v.Size > s.cfg.MaxArchiveBytes-out.TotalSize {
-			return ArchiveManifest{}, ErrCapacity
+			return ArchiveManifest{}, withLimit(ErrArchiveTooLarge, s.cfg.MaxArchiveBytes)
 		}
 		out.TotalSize += v.Size
 		out.Entries = append(out.Entries, ArchiveEntry{ReferenceID: id, VersionID: v.ID, Path: fmt.Sprintf("files/%03d/%s", n+1, v.Filename), Filename: v.Filename, Size: v.Size, SHA256: v.SHA256})

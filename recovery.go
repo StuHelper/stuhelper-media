@@ -144,7 +144,11 @@ func (s *Service) RunOne(ctx context.Context, worker string) (bool, error) {
 	return true, e
 }
 func errorCode(e error) string {
-	for _, known := range []error{ErrInput, ErrDenied, ErrConflict, ErrIntegrity, ErrType, ErrCapacity, ErrExpired} {
+	for _, known := range []error{
+		ErrTransferBusy, ErrOpenUploadsLimit, ErrFileLimit, ErrVersionLimit, ErrReferenceLimit, ErrArchiveTooLarge,
+		ErrUploadTooLarge, ErrFilenameInvalid, ErrTypeNotAllowed,
+		ErrInput, ErrDenied, ErrConflict, ErrIntegrity, ErrType, ErrCapacity, ErrExpired,
+	} {
 		if errors.Is(e, known) {
 			return known.Error()
 		}

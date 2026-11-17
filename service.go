@@ -87,7 +87,7 @@ func (s *Service) begin(ctx context.Context) (context.Context, func(), error) {
 	case s.slots <- struct{}{}:
 	default:
 		s.mu.Unlock()
-		return nil, nil, ErrCapacity
+		return nil, nil, withLimit(ErrTransferBusy, int64(s.cfg.ParallelTransfers))
 	}
 	s.active.Add(1)
 	s.mu.Unlock()
@@ -214,8 +214,17 @@ func validFilename(v string) bool {
 func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r UploadRequest) (Version, error) {
 	var out Version
 	profile, ok := s.cfg.Profiles[r.Purpose]
-	if !ok || !validFilename(r.Filename) || !slices.Contains(profile.AllowedTypes, r.ContentType) || r.Size < 1 || r.Size > profile.MaxSize || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
+	if !ok || r.Size < 1 || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
 		return out, ErrInput
+	}
+	if !validFilename(r.Filename) {
+		return out, ErrFilenameInvalid
+	}
+	if !slices.Contains(profile.AllowedTypes, r.ContentType) {
+		return out, ErrTypeNotAllowed
+	}
+	if r.Size > profile.MaxSize {
+		return out, withLimit(ErrUploadTooLarge, profile.MaxSize)
 	}
 	var f File
 	e := s.mutation(ctx, p, "media.uploads.create", r.FileID, key, r, func(tx Transaction) error {
@@ -244,14 +253,17 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 		if e != nil {
 			return nil, e
 		}
-		if open >= s.cfg.MaxOpenUploads || (r.FileID == "" && files >= s.cfg.MaxFilesPerOwner) {
-			return nil, ErrCapacity
+		if open >= s.cfg.MaxOpenUploads {
+			return nil, withLimit(ErrOpenUploadsLimit, int64(s.cfg.MaxOpenUploads))
+		}
+		if r.FileID == "" && files >= s.cfg.MaxFilesPerOwner {
+			return nil, withLimit(ErrFileLimit, int64(s.cfg.MaxFilesPerOwner))
 		}
 		if r.FileID == "" {
 			f = File{ID: newID(), Owner: p, Purpose: r.Purpose, Revision: 1, CreatedAt: s.now()}
 		}
 		if f.NextVersion >= s.cfg.MaxVersions {
-			return nil, ErrCapacity
+			return nil, withLimit(ErrVersionLimit, int64(s.cfg.MaxVersions))
 		}
 		f.NextVersion++
 		f.Revision++

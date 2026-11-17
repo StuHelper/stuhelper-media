@@ -48,6 +48,9 @@
       "reuse_test.go#TestReuseRequiresCurrentSourceRightsAndProfile",
       "reuse_test.go#TestReuseLostResponseAndRestartDoNotResendOrApprove",
       "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle"
+    ],
+    "MEDIA-17": [
+      "http_test.go#TestHTTPStructuredErrorCodesLimitsAndRetryAfter"
     ]
   }
 }

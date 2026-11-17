@@ -24,7 +24,45 @@ var (
 	ErrType        = errors.New("media_content_type_rejected")
 	ErrCapacity    = errors.New("media_capacity_unavailable")
 	ErrExpired     = errors.New("media_upload_expired")
+
+	ErrTransferBusy     error = &codedError{code: "media_transfer_busy", parent: ErrCapacity}
+	ErrOpenUploadsLimit error = &codedError{code: "media_open_uploads_limit", parent: ErrCapacity}
+	ErrFileLimit        error = &codedError{code: "media_file_limit_exceeded", parent: ErrCapacity}
+	ErrVersionLimit     error = &codedError{code: "media_version_limit_exceeded", parent: ErrCapacity}
+	ErrReferenceLimit   error = &codedError{code: "media_reference_limit_exceeded", parent: ErrCapacity}
+	ErrArchiveTooLarge  error = &codedError{code: "media_archive_too_large", parent: ErrCapacity}
+	ErrUploadTooLarge   error = &codedError{code: "media_upload_too_large", parent: ErrInput}
+	ErrFilenameInvalid  error = &codedError{code: "media_filename_invalid", parent: ErrInput}
+	ErrTypeNotAllowed   error = &codedError{code: "media_type_not_allowed", parent: ErrInput}
 )
+
+type codedError struct {
+	code   string
+	parent error
+}
+
+func (e *codedError) Error() string { return e.code }
+func (e *codedError) Unwrap() error { return e.parent }
+
+type limitError struct {
+	err   error
+	limit int64
+}
+
+func (e *limitError) Error() string { return e.err.Error() }
+func (e *limitError) Unwrap() error { return e.err }
+
+func withLimit(err error, limit int64) error {
+	return &limitError{err: err, limit: limit}
+}
+
+func ErrorLimit(err error) (int64, bool) {
+	var le *limitError
+	if errors.As(err, &le) && le.limit > 0 {
+		return le.limit, true
+	}
+	return 0, false
+}
 
 type Principal = storage.Principal
 type Protection = storage.Protection

@@ -117,8 +117,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -244,8 +261,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -369,8 +403,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -496,8 +547,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -624,8 +692,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -749,8 +834,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -886,8 +988,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1013,8 +1132,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1140,8 +1276,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1267,8 +1420,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1394,8 +1564,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1519,8 +1706,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1646,8 +1850,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1764,8 +1985,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1892,8 +2130,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2009,8 +2264,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2127,8 +2399,25 @@
               }
             }
           },
+          "429": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Sanitized failure",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2149,6 +2438,82 @@
       }
     },
     "schemas": {
+      "VersionState": {
+        "type": "string",
+        "enum": [
+          "created",
+          "uploading",
+          "verifying",
+          "awaiting_approval",
+          "approved",
+          "ready",
+          "cancelled",
+          "expired",
+          "rejected",
+          "deleting",
+          "deleted"
+        ]
+      },
+      "ReferenceState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "publishing",
+          "active",
+          "released"
+        ]
+      },
+      "StorageState": {
+        "type": "string",
+        "enum": [
+          "",
+          "pending",
+          "ready",
+          "degraded",
+          "unavailable",
+          "deleting",
+          "deleted"
+        ]
+      },
+      "VersionErrorCode": {
+        "type": "string",
+        "enum": [
+          "",
+          "media_integrity_failed",
+          "media_content_type_rejected",
+          "media_upload_expired",
+          "media_upload_result_unconfirmed",
+          "media_unavailable",
+          "media_permission_denied",
+          "media_conflict",
+          "media_capacity_unavailable",
+          "media_transfer_busy"
+        ]
+      },
+      "ProblemCode": {
+        "type": "string",
+        "enum": [
+          "authentication_required",
+          "media_invalid_input",
+          "media_filename_invalid",
+          "media_type_not_allowed",
+          "media_permission_denied",
+          "media_not_found",
+          "media_conflict",
+          "media_upload_expired",
+          "media_upload_too_large",
+          "media_archive_too_large",
+          "media_integrity_failed",
+          "media_content_type_rejected",
+          "media_open_uploads_limit",
+          "media_file_limit_exceeded",
+          "media_version_limit_exceeded",
+          "media_reference_limit_exceeded",
+          "media_transfer_busy",
+          "media_capacity_unavailable",
+          "media_unavailable"
+        ]
+      },
       "Problem": {
         "type": "object",
         "additionalProperties": false,
@@ -2157,7 +2522,17 @@
         ],
         "properties": {
           "code": {
-            "type": "string"
+            "$ref": "#/components/schemas/ProblemCode"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "retry_after_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
           }
         }
       },
@@ -2213,7 +2588,7 @@
             "type": "string"
           },
           "state": {
-            "type": "string"
+            "$ref": "#/components/schemas/VersionState"
           },
           "approved": {
             "type": "boolean"
@@ -2231,7 +2606,7 @@
             "description": "This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish."
           },
           "error_code": {
-            "type": "string"
+            "$ref": "#/components/schemas/VersionErrorCode"
           },
           "reused": {
             "type": "boolean",
@@ -2294,7 +2669,7 @@
             "type": "string"
           },
           "state": {
-            "type": "string"
+            "$ref": "#/components/schemas/VersionState"
           },
           "approved": {
             "type": "boolean"
@@ -2312,10 +2687,10 @@
             "description": "This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish."
           },
           "error_code": {
-            "type": "string"
+            "$ref": "#/components/schemas/VersionErrorCode"
           },
           "storage_state": {
-            "type": "string"
+            "$ref": "#/components/schemas/StorageState"
           },
           "healthy": {
             "type": "integer",
@@ -2401,7 +2776,7 @@
             "type": "string"
           },
           "state": {
-            "type": "string"
+            "$ref": "#/components/schemas/ReferenceState"
           },
           "revision": {
             "type": "integer",
