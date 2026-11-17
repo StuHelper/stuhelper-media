@@ -3,6 +3,8 @@ package media
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	storage "github.com/StuHelper/stuhelper-storage"
 	"io"
@@ -74,6 +76,7 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 			return ErrConflict
 		}
 		if v.State == "awaiting_approval" || v.Approved {
+			v.UploadedBytes = v.Size
 			complete = true
 			return nil
 		}
@@ -88,6 +91,11 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 			return ErrConflict
 		}
 		v.State = "uploading"
+		v.UploadedBytes = 0
+		v.ChunkKey = ""
+		v.ChunkOffset = 0
+		v.ChunkSize = 0
+		v.ChunkSHA256 = ""
 		v.UploadGeneration++
 		v.UploadUntil = s.now().Add(s.cfg.OperationTimeout + time.Second)
 		v.Revision++
@@ -102,6 +110,7 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 	if reused {
 		return s.reuseUpload(ctx, p, v.ID)
 	}
+	s.staging.remove(v.ID)
 	prefix, e := io.ReadAll(io.LimitReader(src, 512))
 	if e == nil {
 		detected, _, parse := mime.ParseMediaType(http.DetectContentType(prefix))
@@ -164,9 +173,11 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		switch {
 		case e == nil:
 			current.State = "awaiting_approval"
+			current.UploadedBytes = current.Size
 			current.ErrorCode = ""
 		case errors.Is(e, ErrIntegrity) || errors.Is(e, ErrType):
 			current.State = "rejected"
+			current.UploadedBytes = 0
 			current.ErrorCode = e.Error()
 		default:
 			current.State = "verifying"
@@ -180,6 +191,253 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 			return err
 		}
 		return s.emit(tx, p, "media.upload.checked", v.ID, current.Revision)
+	})
+	if save != nil {
+		return out, save
+	}
+	return out, e
+}
+
+func (s *Service) AppendUpload(ctx context.Context, p Principal, id, key string, offset int64, src io.Reader) (Version, error) {
+	if !idOK(id) || !validKey(key) || offset < 0 || src == nil {
+		return Version{}, ErrInput
+	}
+	work, done, e := s.begin(ctx)
+	if e != nil {
+		return Version{}, e
+	}
+	defer done()
+	ctx = work
+	var v Version
+	var replayCandidate bool
+	e = s.repo.Transaction(ctx, func(tx Transaction) error {
+		initial, e := tx.Upload(id)
+		if e != nil {
+			return e
+		}
+		f, current, e := s.load(tx, initial.ID)
+		if e != nil {
+			return e
+		}
+		v = current
+		if f.Owner != p {
+			return ErrDenied
+		}
+		if e = s.authorize(ctx, p, "media.uploads.write", access(f, v, nil)); e != nil {
+			return e
+		}
+		if f.Disabled || f.Deleting || terminal(v) || v.Reused {
+			return ErrConflict
+		}
+		if v.ChunkKey != "" && v.ChunkKey == key {
+			replayCandidate = true
+			return nil
+		}
+		if v.State == "awaiting_approval" || v.Approved {
+			return ErrConflict
+		}
+		if !v.ExpiresAt.After(s.now()) {
+			return ErrExpired
+		}
+		if v.UploadUntil.After(s.now()) {
+			return ErrConflict
+		}
+		if offset >= v.Size {
+			return ErrInput
+		}
+		actual := s.staging.size(v.ID)
+		if offset != actual {
+			return ErrConflict
+		}
+		v.State = "uploading"
+		v.UploadedBytes = actual
+		v.UploadGeneration++
+		v.UploadUntil = s.now().Add(s.cfg.OperationTimeout + time.Second)
+		v.Revision++
+		if e = tx.SaveVersion(v); e != nil {
+			return e
+		}
+		return s.schedule(tx, v.ID, true)
+	})
+	if e != nil {
+		return s.normalizeVersionProgress(v), e
+	}
+	if replayCandidate {
+		if v.ChunkOffset != offset {
+			return Version{}, ErrConflict
+		}
+		hasher := sha256.New()
+		n, readErr := io.Copy(hasher, io.LimitReader(src, v.Size-offset+1))
+		if readErr != nil {
+			var maxBytes *http.MaxBytesError
+			if errors.As(readErr, &maxBytes) {
+				return Version{}, readErr
+			}
+			return Version{}, ErrUnavailable
+		}
+		if n != v.ChunkSize || hex.EncodeToString(hasher.Sum(nil)) != v.ChunkSHA256 {
+			return Version{}, ErrConflict
+		}
+		return s.normalizeVersionProgress(v), nil
+	}
+
+	newOffset, chunkSize, chunkSHA, prefix, e := s.staging.appendChunk(ctx, v.ID, offset, v.Size, src)
+	typeValidated := v.TypeValidated
+	if e == nil && (!typeValidated || offset == 0) && (newOffset >= 512 || newOffset == v.Size) {
+		detected, _, parse := mime.ParseMediaType(http.DetectContentType(prefix))
+		if parse != nil || detected != v.ContentType {
+			e = ErrType
+		} else {
+			typeValidated = true
+		}
+	}
+
+	if e == nil && newOffset < v.Size {
+		finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		var out Version
+		saveErr := s.repo.Transaction(finish, func(tx Transaction) error {
+			_, current, err := s.load(tx, v.ID)
+			if err != nil {
+				return err
+			}
+			out = current
+			if current.UploadGeneration != v.UploadGeneration || terminal(current) {
+				s.staging.remove(v.ID)
+				return ErrConflict
+			}
+			current.State = "uploading"
+			current.UploadedBytes = newOffset
+			current.TypeValidated = typeValidated
+			current.UploadUntil = time.Time{}
+			current.ErrorCode = ""
+			current.ChunkKey = key
+			current.ChunkOffset = offset
+			current.ChunkSize = chunkSize
+			current.ChunkSHA256 = chunkSHA
+			current.Revision++
+			out = current
+			return tx.SaveVersion(current)
+		})
+		if saveErr != nil {
+			return out, saveErr
+		}
+		return out, nil
+	}
+
+	completedBytes := e == nil && newOffset == v.Size
+	if completedBytes {
+		verifiedFile, verifyErr := s.staging.openVerified(ctx, v.ID, v.Size, v.SHA256)
+		if verifyErr != nil {
+			e = verifyErr
+		} else {
+			defer verifiedFile.Close()
+			e = s.repo.Transaction(ctx, func(tx Transaction) error {
+				f, current, err := s.load(tx, v.ID)
+				if err != nil {
+					return err
+				}
+				if terminal(current) || f.Disabled || f.Deleting || current.UploadGeneration != v.UploadGeneration {
+					return ErrConflict
+				}
+				if err = s.authorize(ctx, p, "media.uploads.write", access(f, current, nil)); err != nil {
+					return err
+				}
+				current.TypeValidated = true
+				current.ObjectIssued = true
+				v = current
+				return tx.SaveVersion(current)
+			})
+			var object string
+			if e == nil {
+				object, e = s.ensureObject(ctx, v)
+			}
+			if e == nil {
+				e = s.repo.Transaction(ctx, func(tx Transaction) error {
+					f, current, err := s.load(tx, v.ID)
+					if err != nil {
+						return err
+					}
+					if terminal(current) || f.Disabled || f.Deleting || current.UploadGeneration != v.UploadGeneration {
+						return ErrConflict
+					}
+					return s.authorize(ctx, p, "media.uploads.write", access(f, current, nil))
+				})
+			}
+			if e == nil {
+				_, ingestErr := s.store.Ingest(ctx, s.cfg.Actor, object, "media-ingest:"+v.ID, verifiedFile)
+				e = storeError(ingestErr)
+			}
+		}
+	}
+
+	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	var out Version
+	save := s.repo.Transaction(finish, func(tx Transaction) error {
+		_, current, err := s.load(tx, v.ID)
+		if err != nil {
+			return err
+		}
+		out = current
+		if current.UploadGeneration != v.UploadGeneration || terminal(current) {
+			if terminal(current) {
+				s.staging.remove(v.ID)
+			}
+			return nil
+		}
+		current.UploadUntil = time.Time{}
+		current.Revision++
+		switch {
+		case e == nil:
+			s.staging.remove(v.ID)
+			current.State = "awaiting_approval"
+			current.UploadedBytes = current.Size
+			current.ErrorCode = ""
+			current.ChunkKey = key
+			current.ChunkOffset = offset
+			current.ChunkSize = chunkSize
+			current.ChunkSHA256 = chunkSHA
+			out = current
+			if err = tx.SaveVersion(current); err != nil {
+				return err
+			}
+			if err = s.schedule(tx, v.ID, true); err != nil {
+				return err
+			}
+			return s.emit(tx, p, "media.upload.checked", v.ID, current.Revision)
+		case errors.Is(e, ErrIntegrity) || errors.Is(e, ErrType):
+			s.staging.remove(v.ID)
+			current.State = "rejected"
+			current.UploadedBytes = 0
+			current.ErrorCode = e.Error()
+			out = current
+			if err = tx.SaveVersion(current); err != nil {
+				return err
+			}
+			if err = s.schedule(tx, v.ID, true); err != nil {
+				return err
+			}
+			return s.emit(tx, p, "media.upload.checked", v.ID, current.Revision)
+		case completedBytes && current.ObjectIssued:
+			s.staging.remove(v.ID)
+			current.State = "verifying"
+			current.UploadedBytes = current.Size
+			current.ErrorCode = "media_upload_result_unconfirmed"
+			out = current
+			if err = tx.SaveVersion(current); err != nil {
+				return err
+			}
+			if err = s.schedule(tx, v.ID, true); err != nil {
+				return err
+			}
+			return s.emit(tx, p, "media.upload.checked", v.ID, current.Revision)
+		default:
+			current.State = "uploading"
+			current.UploadedBytes = s.staging.size(v.ID)
+			out = current
+			return tx.SaveVersion(current)
+		}
 	})
 	if save != nil {
 		return out, save

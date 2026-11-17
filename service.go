@@ -15,17 +15,18 @@ import (
 )
 
 type Service struct {
-	repo   Repository
-	auth   Authorizer
-	store  Store
-	cfg    Config
-	now    func() time.Time
-	slots  chan struct{}
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	closed bool
-	active sync.WaitGroup
+	repo    Repository
+	auth    Authorizer
+	store   Store
+	cfg     Config
+	now     func() time.Time
+	slots   chan struct{}
+	staging *uploadStaging
+	ctx     context.Context
+	cancel  context.CancelFunc
+	mu      sync.Mutex
+	closed  bool
+	active  sync.WaitGroup
 }
 
 func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
@@ -42,6 +43,7 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 		return nil, ErrInput
 	}
 	profiles := make(map[string]Profile, len(c.Profiles))
+	var maxProfileSize int64
 	for name, p := range c.Profiles {
 		if !idOK(name) || !idOK(p.Module) || !p.Quarantine.Valid() || p.Quarantine.Public || !p.Published.Valid() || p.Published.Scope != p.Quarantine.Scope || (!p.Published.Public && p.Published != p.Quarantine) || p.MaxSize < 1 || p.MaxSize > 1<<30 || len(p.AllowedTypes) == 0 || len(p.AllowedTypes) > 32 {
 			return nil, ErrInput
@@ -54,6 +56,17 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 		}
 		p.AllowedTypes = slices.Clone(p.AllowedTypes)
 		profiles[name] = p
+		maxProfileSize = max(maxProfileSize, p.MaxSize)
+	}
+	if c.MaxStagingBytes == 0 {
+		c.MaxStagingBytes = min(max(4*maxProfileSize, 64<<20), 1<<30)
+	}
+	if c.MaxStagingBytes < maxProfileSize || c.MaxStagingBytes > 16<<30 {
+		return nil, ErrInput
+	}
+	staging, err := openUploadStaging(c.StagingDirectory, c.MaxStagingBytes)
+	if err != nil {
+		return nil, err
 	}
 	c.Profiles = profiles
 	now := c.Clock
@@ -61,7 +74,7 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 		now = time.Now
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Service{repo: r, auth: a, store: store, cfg: c, now: now, slots: make(chan struct{}, c.ParallelTransfers), ctx: ctx, cancel: cancel}, nil
+	return &Service{repo: r, auth: a, store: store, cfg: c, now: now, slots: make(chan struct{}, c.ParallelTransfers), staging: staging, ctx: ctx, cancel: cancel}, nil
 }
 func (s *Service) Close(ctx context.Context) error {
 	s.mu.Lock()
@@ -72,7 +85,7 @@ func (s *Service) Close(ctx context.Context) error {
 	go func() { s.active.Wait(); close(done) }()
 	select {
 	case <-done:
-		return nil
+		return s.staging.close()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -296,6 +309,52 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 	}
 	return out, e
 }
+func (s *Service) normalizeVersionProgress(v Version) Version {
+	switch {
+	case v.State == "awaiting_approval" || v.Approved || v.State == "ready":
+		v.UploadedBytes = v.Size
+	case terminal(v):
+		v.UploadedBytes = 0
+	case v.UploadedBytes > 0:
+		v.UploadedBytes = min(v.UploadedBytes, s.staging.size(v.ID))
+	}
+	return v
+}
+func (s *Service) ListProfiles(ctx context.Context, p Principal) (ProfileCatalog, error) {
+	out := ProfileCatalog{
+		Profiles:         []ProfileSummary{},
+		UploadTTLSeconds: int64(s.cfg.UploadTTL / time.Second),
+		MaxArchiveFiles:  s.cfg.MaxArchiveFiles,
+		MaxArchiveBytes:  s.cfg.MaxArchiveBytes,
+	}
+	if !p.Valid() {
+		return out, ErrDenied
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
+	defer cancel()
+	names := make([]string, 0, len(s.cfg.Profiles))
+	for name := range s.cfg.Profiles {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		prof := s.cfg.Profiles[name]
+		e := s.authorize(ctx, p, "media.uploads.create", Access{Purpose: name, Owner: p, Protection: prof.Published})
+		if errors.Is(e, ErrDenied) {
+			continue
+		}
+		if e != nil {
+			return ProfileCatalog{}, e
+		}
+		out.Profiles = append(out.Profiles, ProfileSummary{
+			Purpose:      name,
+			Module:       prof.Module,
+			AllowedTypes: slices.Clone(prof.AllowedTypes),
+			MaxSize:      prof.MaxSize,
+		})
+	}
+	return out, nil
+}
 func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (VersionView, error) {
 	var v Version
 	e := s.repo.Transaction(ctx, func(tx Transaction) error {
@@ -306,6 +365,7 @@ func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (Versi
 		v = current
 		return s.authorize(ctx, p, "media.files.read", access(f, v, nil))
 	})
+	v = s.normalizeVersionProgress(v)
 	out := VersionView{Version: v, Desired: 3}
 	if e != nil {
 		return out, e
@@ -352,6 +412,9 @@ func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView
 		}
 		if e = s.authorize(ctx, p, "media.files.read", access(f, vs[0], nil)); e != nil {
 			return e
+		}
+		for i := range vs {
+			vs[i] = s.normalizeVersionProgress(vs[i])
 		}
 		out = FileView{f, vs}
 		return nil
@@ -413,6 +476,7 @@ func (s *Service) CancelUpload(ctx context.Context, p Principal, id, key string)
 		}
 		if !terminal(v) {
 			v.State = "cancelled"
+			v.UploadedBytes = 0
 			v.ErrorCode = ""
 			for n := range v.References {
 				v.References[n].State = "released"
@@ -431,6 +495,9 @@ func (s *Service) CancelUpload(ctx context.Context, p Principal, id, key string)
 		}
 		return v, nil
 	}, &out)
+	if e == nil && out.ID != "" {
+		s.staging.remove(out.ID)
+	}
 	return out, e
 }
 func (s *Service) SetFileState(ctx context.Context, p Principal, id, key string, revision int64, disabled bool) (FileView, error) {
@@ -490,6 +557,7 @@ func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, r
 		for n, v := range vs {
 			if deleting && !terminal(v) {
 				v.State = "deleting"
+				v.UploadedBytes = 0
 				v.Revision++
 				if e := tx.SaveVersion(v); e != nil {
 					return nil, e
@@ -505,6 +573,11 @@ func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, r
 		}
 		return FileView{f, vs}, nil
 	}, &out)
+	if e == nil && deleting {
+		for _, v := range out.Versions {
+			s.staging.remove(v.ID)
+		}
+	}
 	return out, e
 }
 func storeError(e error) error {

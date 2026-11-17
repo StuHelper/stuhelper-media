@@ -100,6 +100,7 @@ func (s *Service) reuseUpload(ctx context.Context, p Principal, id string) (Vers
 			return nil
 		}
 		v.State = "awaiting_approval"
+		v.UploadedBytes = v.Size
 		v.ErrorCode = ""
 		return s.save(tx, p, v, "media.upload.reused")
 	})

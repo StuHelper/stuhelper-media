@@ -38,12 +38,16 @@ type versionRecord struct {
 	TypeValidated    bool              `json:"type_validated"`
 	UploadGeneration int64             `json:"upload_generation"`
 	UploadUntil      time.Time         `json:"upload_until"`
+	ChunkKey         string            `json:"chunk_key,omitempty"`
+	ChunkOffset      int64             `json:"chunk_offset,omitempty"`
+	ChunkSize        int64             `json:"chunk_size,omitempty"`
+	ChunkSHA256      string            `json:"chunk_sha256,omitempty"`
 	Profile          media.Profile     `json:"profile"`
 	References       []media.Reference `json:"references"`
 }
 
 func record(v media.Version) versionRecord {
-	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
+	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadGeneration, v.UploadUntil, v.ChunkKey, v.ChunkOffset, v.ChunkSize, v.ChunkSHA256, v.Profile, v.References}
 }
 func (r versionRecord) value() media.Version {
 	v := r.Version
@@ -55,6 +59,10 @@ func (r versionRecord) value() media.Version {
 	v.TypeValidated = r.TypeValidated
 	v.UploadGeneration = r.UploadGeneration
 	v.UploadUntil = r.UploadUntil
+	v.ChunkKey = r.ChunkKey
+	v.ChunkOffset = r.ChunkOffset
+	v.ChunkSize = r.ChunkSize
+	v.ChunkSHA256 = r.ChunkSHA256
 	v.Profile = r.Profile
 	v.References = r.References
 	return v

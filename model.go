@@ -68,6 +68,8 @@ type Config struct {
 	MaxAttempts                                                                     int
 	MaxArchiveFiles                                                                 int
 	MaxArchiveBytes                                                                 int64
+	StagingDirectory                                                                string
+	MaxStagingBytes                                                                 int64
 }
 type File struct {
 	ID          string    `json:"id"`
@@ -92,6 +94,7 @@ type Version struct {
 	Filename        string    `json:"filename"`
 	ContentType     string    `json:"content_type"`
 	Size            int64     `json:"size"`
+	UploadedBytes   int64     `json:"uploaded_bytes"`
 	SHA256          string    `json:"sha256"`
 	State           string    `json:"state"`
 	Approved        bool      `json:"approved"`
@@ -105,6 +108,10 @@ type Version struct {
 	TypeValidated    bool        `json:"-"`
 	UploadGeneration int64       `json:"-"`
 	UploadUntil      time.Time   `json:"-"`
+	ChunkKey         string      `json:"-"`
+	ChunkOffset      int64       `json:"-"`
+	ChunkSize        int64       `json:"-"`
+	ChunkSHA256      string      `json:"-"`
 	Profile          Profile     `json:"-"`
 	References       []Reference `json:"-"`
 }
@@ -125,6 +132,18 @@ type UploadRequest struct {
 	ContentType   string `json:"content_type"`
 	Size          int64  `json:"size"`
 	SHA256        string `json:"sha256"`
+}
+type ProfileSummary struct {
+	Purpose      string   `json:"purpose"`
+	Module       string   `json:"module"`
+	AllowedTypes []string `json:"allowed_types"`
+	MaxSize      int64    `json:"max_size"`
+}
+type ProfileCatalog struct {
+	Profiles         []ProfileSummary `json:"profiles"`
+	UploadTTLSeconds int64            `json:"upload_ttl_seconds"`
+	MaxArchiveFiles  int              `json:"max_archive_files"`
+	MaxArchiveBytes  int64            `json:"max_archive_bytes"`
 }
 type Binding struct {
 	Module     string `json:"module"`

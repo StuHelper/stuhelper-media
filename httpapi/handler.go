@@ -29,6 +29,12 @@ func New(s *media.Service, a Authenticator, max int64) (http.Handler, error) {
 	}
 	h := &handler{s, a, max}
 	m := http.NewServeMux()
+	h.mount(m, "GET /api/v1/media/profiles", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		if len(r.URL.Query()) > 0 {
+			return nil, media.ErrInput
+		}
+		return s.ListProfiles(r.Context(), p)
+	})
 	h.mount(m, "POST /api/v1/media/uploads", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
 		var q media.UploadRequest
 		if e := decode(r, &q); e != nil {
@@ -51,6 +57,21 @@ func New(s *media.Service, a Authenticator, max int64) (http.Handler, error) {
 			return nil, media.ErrInput
 		}
 		return s.Upload(r.Context(), p, r.PathValue("id"), r.Header.Get("Idempotency-Key"), r.Body)
+	})
+	h.mount(m, "PATCH /api/v1/media/uploads/{id}/content", true, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		typ, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if e != nil || typ != "application/octet-stream" {
+			return nil, media.ErrInput
+		}
+		offsets := r.Header.Values("Upload-Offset")
+		if len(offsets) != 1 || offsets[0] == "" {
+			return nil, media.ErrInput
+		}
+		offset, e := strconv.ParseInt(offsets[0], 10, 64)
+		if e != nil || offset < 0 {
+			return nil, media.ErrInput
+		}
+		return s.AppendUpload(r.Context(), p, r.PathValue("id"), r.Header.Get("Idempotency-Key"), offset, r.Body)
 	})
 	h.mount(m, "GET /api/v1/media/files", false, func(_ http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
 		limit := 50
