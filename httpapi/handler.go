@@ -268,6 +268,16 @@ func (h *handler) SetFileState(w http.ResponseWriter, r *http.Request, id string
 	h.respond(w, r, out, e)
 }
 
+func (h *handler) RejectVersion(w http.ResponseWriter, r *http.Request, id string, params sdk.RejectVersionParams) {
+	var q media.RejectionRequest
+	if e := decode(r, &q); e != nil {
+		h.respond(w, r, nil, e)
+		return
+	}
+	out, e := h.s.Reject(r.Context(), principalOf(r), id, params.IdempotencyKey, q.Reason)
+	h.respond(w, r, out, e)
+}
+
 func (h *handler) GetVersion(w http.ResponseWriter, r *http.Request, id string) {
 	out, e := h.s.GetVersion(r.Context(), principalOf(r), id)
 	h.respond(w, r, out, e)

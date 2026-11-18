@@ -80,6 +80,11 @@
     ],
     "MEDIA-17": [
       "http_test.go#TestHTTPStructuredErrorCodesLimitsAndRetryAfter"
+    ],
+    "MEDIA-13": [
+      "integration_test.go#TestVersionRejectionReasonCleanupAndPendingApprovalRetention",
+      "http_test.go#TestHTTPRejectVersionIdempotencyAndValidation",
+      "integration_test.go#TestRepeatedBindingsRespectHandleLifetime"
     ]
   }
 }

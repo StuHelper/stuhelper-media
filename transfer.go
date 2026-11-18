@@ -195,6 +195,7 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		case e == nil:
 			current.State = "awaiting_approval"
 			current.ErrorCode = ""
+			s.extendPendingRetention(&current)
 		case errors.Is(e, ErrIntegrity) || errors.Is(e, ErrType):
 			current.State = "rejected"
 			current.ErrorCode = e.Error()
@@ -242,7 +243,7 @@ func (s *Service) ingestUpload(ctx context.Context, p Principal, v Version, src 
 				return err
 			}
 			current.TypeValidated = true
-			current.ObjectIssued = true
+			s.markObjectIssued(&current)
 			v = current
 			return tx.SaveVersion(current)
 		})

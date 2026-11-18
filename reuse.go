@@ -115,6 +115,7 @@ func (s *Service) reuseUpload(ctx context.Context, p Principal, id string) (Vers
 		}
 		v.State = "awaiting_approval"
 		v.ErrorCode = ""
+		s.extendPendingRetention(&v)
 		return s.save(ctx, tx, p, v, "media.upload.reused", nil)
 	})
 	if e != nil {

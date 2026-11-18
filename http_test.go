@@ -603,6 +603,41 @@ func TestHTTPStructuredErrorCodesLimitsAndRetryAfter(t *testing.T) {
 		t.Fatalf("unexpected archive too large response: %d %s", archBig.StatusCode(), string(archBig.Body))
 	}
 }
+func TestHTTPRejectVersionIdempotencyAndValidation(t *testing.T) {
+	h := newFixture(t)
+	handler, e := httpapi.New(h.s, authenticate{}, 1<<20)
+	must(t, e)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client, e := sdk.NewClientWithResponses(server.URL, sdk.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
+		r.Header.Set("Authorization", "Bearer fixture-owner")
+		return nil
+	}))
+	must(t, e)
+	v := h.newUpload(t, "http-reject", []byte("pending review content"))
+	badReq, e := http.NewRequest("POST", server.URL+"/api/v1/media/versions/"+v.ID+"/rejection", strings.NewReader(`{"reason":"invalid_enum"}`))
+	must(t, e)
+	badReq.Header.Set("Authorization", "Bearer fixture-owner")
+	badReq.Header.Set("Content-Type", "application/json")
+	badReq.Header.Set("Idempotency-Key", "http-bad-reason")
+	badRes, e := http.DefaultClient.Do(badReq)
+	must(t, e)
+	badRes.Body.Close()
+	if badRes.StatusCode != 400 {
+		t.Fatal("expected 400 for invalid rejection reason", badRes.StatusCode)
+	}
+
+	rejected, e := client.RejectVersionWithResponse(h.ctx, v.ID, &sdk.RejectVersionParams{IdempotencyKey: "http-reject-1"}, sdk.RejectionRequest{Reason: sdk.WrongCourse})
+	must(t, e)
+	if rejected.StatusCode() != 200 || rejected.JSON200 == nil || rejected.JSON200.State != "rejected" || rejected.JSON200.RejectionReason == nil || *rejected.JSON200.RejectionReason != sdk.WrongCourse || rejected.JSON200.ErrorCode != "media_rejected_wrong_course" {
+		t.Fatalf("unexpected HTTP reject response: %d %s", rejected.StatusCode(), string(rejected.Body))
+	}
+	conflict, e := client.RejectVersionWithResponse(h.ctx, v.ID, &sdk.RejectVersionParams{IdempotencyKey: "http-reject-1"}, sdk.RejectionRequest{Reason: sdk.UnreadableContent})
+	must(t, e)
+	if conflict.StatusCode() != 409 {
+		t.Fatal("expected 409 for mismatched idempotency payload", conflict.StatusCode())
+	}
+}
 func mustJSON(t *testing.T, v any) []byte { t.Helper(); b, e := json.Marshal(v); must(t, e); return b }
 func TestHTTPReuseReturnsDurableSession(t *testing.T) {
 	h := newFixture(t)

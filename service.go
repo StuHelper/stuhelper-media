@@ -32,6 +32,12 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 	if r == nil || a == nil || store == nil || !c.Actor.Valid() || len(c.Profiles) == 0 || len(c.Profiles) > 64 || c.UploadTTL < time.Minute || c.UploadTTL > 24*time.Hour || c.UnreferencedTTL < c.UploadTTL || c.UnreferencedTTL > 24*time.Hour || c.OperationTimeout < time.Second || c.OperationTimeout > 5*time.Minute || c.ParallelTransfers < 1 || c.ParallelTransfers > 16 || c.MaxOpenUploads < 1 || c.MaxOpenUploads > 100 || c.MaxFilesPerOwner < 1 || c.MaxFilesPerOwner > 10000 || c.MaxVersions < 1 || c.MaxVersions > 100 || c.MaxReferences < 1 || c.MaxReferences > 100 || c.MaxAttempts < 1 || c.MaxAttempts > 100 {
 		return nil, ErrInput
 	}
+	if c.PendingApprovalTTL == 0 {
+		c.PendingApprovalTTL = c.UnreferencedTTL
+	}
+	if c.PendingApprovalTTL < c.UnreferencedTTL || c.PendingApprovalTTL > 24*time.Hour {
+		return nil, ErrInput
+	}
 	if c.MaxArchiveFiles == 0 {
 		c.MaxArchiveFiles = 100
 	}
@@ -354,7 +360,7 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 				v.Reused = true
 				v.ReuseSource = source.ID
 				v.ReuseObject = source.ObjectID
-				v.ObjectIssued = true
+				s.markObjectIssued(&v)
 				v.TypeValidated = true
 				v.State = "verifying"
 			}
@@ -459,6 +465,31 @@ func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView
 	}
 	return out, nil
 }
+
+// Record the earliest possible handle creation once, before the external call.
+// Older versions without this bound keep their previously recorded deadline.
+func (s *Service) markObjectIssued(v *Version) {
+	if !v.ObjectIssued {
+		v.HandleRetainLimit = s.now().Add(24 * time.Hour)
+		v.ObjectIssued = true
+	}
+}
+
+func (s *Service) extendPendingRetention(v *Version) {
+	if terminal(*v) || v.Approved || v.State != "awaiting_approval" || liveReferences(*v) == 0 {
+		return
+	}
+	if v.HandleRetainLimit.IsZero() {
+		return
+	}
+	until := s.now().Add(s.cfg.PendingApprovalTTL)
+	if until.After(v.HandleRetainLimit) {
+		until = v.HandleRetainLimit
+	}
+	if until.After(v.RetainUntil) {
+		v.RetainUntil = until
+	}
+}
 func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Version, error) {
 	ctx, finish, startErr := s.operation(ctx)
 	if startErr != nil {
@@ -493,6 +524,57 @@ func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Ver
 			if e := s.emit(ctx, tx, p, "media.version.approved", v.ID, v.Revision, v.Profile.SchoolID, nil); e != nil {
 				return nil, e
 			}
+		}
+		return v, nil
+	}, &out)
+	return out, e
+}
+func (s *Service) Reject(ctx context.Context, p Principal, id, key, reason string) (Version, error) {
+	ctx, done, err := s.operation(ctx)
+	if err != nil {
+		return Version{}, err
+	}
+	defer done()
+	var out, v Version
+	var f File
+	if !idOK(id) || !ValidRejectionReason(reason) {
+		return out, ErrInput
+	}
+	e := s.mutation(ctx, p, "media.versions.reject", id, key, RejectionRequest{Reason: reason}, func(tx Transaction) error {
+		var e error
+		f, v, e = s.load(tx, id)
+		if e != nil {
+			return e
+		}
+		return s.authorize(ctx, p, "media.versions.reject", access(f, v, nil))
+	}, func(tx Transaction) (any, error) {
+		if f.Disabled || f.Deleting || v.Approved || activeReferences(v) > 0 {
+			return nil, ErrConflict
+		}
+		if v.State == "rejected" {
+			if v.RejectionReason == reason {
+				return v, nil
+			}
+			return nil, ErrConflict
+		}
+		if v.State != "awaiting_approval" {
+			return nil, ErrConflict
+		}
+		v.State = "rejected"
+		v.RejectionReason = reason
+		v.ErrorCode = "media_rejected_" + reason
+		if err := s.releaseBindings(ctx, tx, p, &v); err != nil {
+			return nil, err
+		}
+		v.Revision++
+		if e := tx.SaveVersion(v); e != nil {
+			return nil, e
+		}
+		if e := s.schedule(tx, v.ID, true); e != nil {
+			return nil, e
+		}
+		if e := s.emit(ctx, tx, p, "media.version.rejected", v.ID, v.Revision, v.Profile.SchoolID, nil); e != nil {
+			return nil, e
 		}
 		return v, nil
 	}, &out)

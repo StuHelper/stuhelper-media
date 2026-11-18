@@ -273,6 +273,7 @@ func (s *Service) updateObserved(ctx context.Context, observed Version, state st
 		v.ErrorCode = ""
 		v.UploadUntil = time.Time{}
 		v.UploadGeneration++
+		s.extendPendingRetention(&v)
 		v.Revision++
 		if e = tx.SaveVersion(v); e != nil {
 			return e

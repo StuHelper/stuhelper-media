@@ -99,11 +99,29 @@ type Profile struct {
 	AllowedTypes []string   `json:"allowed_types"`
 	MaxSize      int64      `json:"max_size"`
 }
+
+const (
+	ReasonCopyrightViolation = "copyright_violation"
+	ReasonWrongCourse        = "wrong_course"
+	ReasonUnreadableContent  = "unreadable_content"
+	ReasonDuplicateContent   = "duplicate_content"
+	ReasonPolicyViolation    = "policy_violation"
+)
+
+func ValidRejectionReason(reason string) bool {
+	switch reason {
+	case ReasonCopyrightViolation, ReasonWrongCourse, ReasonUnreadableContent, ReasonDuplicateContent, ReasonPolicyViolation:
+		return true
+	default:
+		return false
+	}
+}
+
 type Config struct {
 	Profiles                                                                        map[string]Profile
 	Actor                                                                           Principal
 	Clock                                                                           func() time.Time
-	UploadTTL, UnreferencedTTL, OperationTimeout                                    time.Duration
+	UploadTTL, UnreferencedTTL, PendingApprovalTTL, OperationTimeout                time.Duration
 	ParallelTransfers, MaxOpenUploads, MaxFilesPerOwner, MaxVersions, MaxReferences int
 	MaxAttempts                                                                     int
 	MaxArchiveFiles                                                                 int
@@ -140,15 +158,17 @@ type Version struct {
 	RetainUntil     time.Time `json:"retain_until"`
 	CleanupComplete bool      `json:"cleanup_complete"`
 	ErrorCode       string    `json:"error_code"`
+	RejectionReason string    `json:"rejection_reason,omitempty"`
 	// Persistence uses Record so internal locations never enter public JSON.
-	ObjectID         string      `json:"-"`
-	ObjectIssued     bool        `json:"-"`
-	TypeValidated    bool        `json:"-"`
-	UploadKey        string      `json:"-"`
-	UploadGeneration int64       `json:"-"`
-	UploadUntil      time.Time   `json:"-"`
-	Profile          Profile     `json:"-"`
-	References       []Reference `json:"-"`
+	ObjectID          string      `json:"-"`
+	HandleRetainLimit time.Time   `json:"-"`
+	ObjectIssued      bool        `json:"-"`
+	TypeValidated     bool        `json:"-"`
+	UploadKey         string      `json:"-"`
+	UploadGeneration  int64       `json:"-"`
+	UploadUntil       time.Time   `json:"-"`
+	Profile           Profile     `json:"-"`
+	References        []Reference `json:"-"`
 }
 type Reference struct {
 	ID         string `json:"id"`
@@ -171,6 +191,9 @@ type UploadRequest struct {
 type Binding struct {
 	Module     string `json:"module"`
 	ResourceID string `json:"resource_id"`
+}
+type RejectionRequest struct {
+	Reason string `json:"reason"`
 }
 type VersionView struct {
 	Version

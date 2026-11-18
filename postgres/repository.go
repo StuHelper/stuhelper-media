@@ -34,18 +34,19 @@ type versionRecord struct {
 	ReuseSource string `json:"reuse_source,omitempty"`
 	ReuseObject string `json:"reuse_object,omitempty"`
 	media.Version
-	ObjectID         string            `json:"object_id"`
-	ObjectIssued     bool              `json:"object_issued"`
-	TypeValidated    bool              `json:"type_validated"`
-	UploadKey        string            `json:"upload_key,omitempty"`
-	UploadGeneration int64             `json:"upload_generation"`
-	UploadUntil      time.Time         `json:"upload_until"`
-	Profile          media.Profile     `json:"profile"`
-	References       []media.Reference `json:"references"`
+	ObjectID          string            `json:"object_id"`
+	HandleRetainLimit time.Time         `json:"handle_retain_limit,omitzero"`
+	ObjectIssued      bool              `json:"object_issued"`
+	TypeValidated     bool              `json:"type_validated"`
+	UploadKey         string            `json:"upload_key,omitempty"`
+	UploadGeneration  int64             `json:"upload_generation"`
+	UploadUntil       time.Time         `json:"upload_until"`
+	Profile           media.Profile     `json:"profile"`
+	References        []media.Reference `json:"references"`
 }
 
 func record(v media.Version) versionRecord {
-	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadKey, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
+	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.HandleRetainLimit, v.ObjectIssued, v.TypeValidated, v.UploadKey, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
 }
 func (r versionRecord) value() media.Version {
 	v := r.Version
@@ -53,6 +54,7 @@ func (r versionRecord) value() media.Version {
 	v.ReuseSource = r.ReuseSource
 	v.ReuseObject = r.ReuseObject
 	v.ObjectID = r.ObjectID
+	v.HandleRetainLimit = r.HandleRetainLimit
 	v.ObjectIssued = r.ObjectIssued
 	v.TypeValidated = r.TypeValidated
 	v.UploadKey = r.UploadKey

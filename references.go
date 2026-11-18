@@ -53,6 +53,7 @@ func (s *Service) Attach(ctx context.Context, p Principal, id, key string, b Bin
 		// bindings in the version snapshot used by subsequent writes.
 		v.References = slices.DeleteFunc(v.References, func(r Reference) bool { return r.State == "released" })
 		v.References = append(v.References, ref)
+		s.extendPendingRetention(&v)
 		if e := s.save(ctx, tx, p, v, "media.reference.attached", &ref); e != nil {
 			return nil, e
 		}
