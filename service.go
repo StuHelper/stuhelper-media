@@ -237,6 +237,21 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 	if !ok || !validFilename(r.Filename) || !slices.Contains(profile.AllowedTypes, r.ContentType) || r.Size < 1 || r.Size > profile.MaxSize || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
 		return out, ErrInput
 	}
+	var candidate Version
+	created := false
+	if r.ReuseExisting {
+		if !validKey(key) || !p.Valid() {
+			return out, ErrInput
+		}
+		if err := s.authorize(ctx, p, "media.uploads.create", Access{FileID: r.FileID, Purpose: r.Purpose, Owner: p, Protection: profile.Published}); err != nil {
+			return out, err
+		}
+		var err error
+		candidate, err = s.chooseReuse(ctx, p, key, r, profile)
+		if err != nil {
+			return out, err
+		}
+	}
 	var f File
 	e := s.mutation(ctx, p, "media.uploads.create", r.FileID, key, r, func(tx Transaction) error {
 		if e := tx.Lock("owner:" + hash(p)); e != nil {
@@ -279,12 +294,16 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 			return nil, e
 		}
 		v := Version{Shared: true, ID: newID(), FileID: f.ID, Number: f.NextVersion, Revision: 1, UploadID: newID(), Filename: r.Filename, ContentType: r.ContentType, Size: r.Size, SHA256: r.SHA256, State: "created", ExpiresAt: s.now().Add(s.cfg.UploadTTL), RetainUntil: s.now().Add(s.cfg.UnreferencedTTL), Profile: profile, References: []Reference{}}
-		if r.ReuseExisting {
-			source, e := s.chooseReuse(ctx, tx, p, r, profile)
+		created = true
+		if candidate.ID != "" {
+			sourceFile, source, e := s.load(tx, candidate.ID)
 			if e != nil {
 				return nil, e
 			}
-			if source.ID != "" {
+			if s.reusable(sourceFile, source, p, r, profile) && source.ObjectID == candidate.ObjectID {
+				if err := s.authorize(ctx, p, "media.files.read", access(sourceFile, source, nil)); err != nil {
+					return nil, err
+				}
 				v.Reused = true
 				v.ReuseSource = source.ID
 				v.ReuseObject = source.ObjectID
@@ -307,12 +326,30 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 		return v, nil
 	}, &out)
 	if e == nil && out.Reused {
-		work, done, err := s.begin(ctx)
-		if err != nil {
+		if !created {
+			err := s.repo.Transaction(ctx, func(tx Transaction) error {
+				f, v, err := s.load(tx, out.ID)
+				if err != nil {
+					return err
+				}
+				if err = s.authorize(ctx, p, "media.uploads.create", access(f, v, nil)); err != nil {
+					return err
+				}
+				out = v
+				return nil
+			})
 			return out, err
 		}
+		work, done, err := s.begin(ctx)
+		if err != nil {
+			return out, nil
+		}
 		defer done()
-		return s.reuseUpload(work, p, out.ID)
+		v, err := s.reuseUpload(work, p, out.ID)
+		if errors.Is(err, ErrUnavailable) || errors.Is(err, ErrCapacity) {
+			return out, nil
+		}
+		return v, err
 	}
 	return out, e
 }

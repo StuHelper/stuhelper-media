@@ -152,8 +152,10 @@ func TestReuseLostResponseAndRestartDoNotResendOrApprove(t *testing.T) {
 	must(t, e)
 	r := request(data)
 	r.ReuseExisting = true
-	if _, e = h.s.CreateUpload(h.ctx, user, "reuse-lost", r); !errors.Is(e, media.ErrUnavailable) {
-		t.Fatal(e)
+	pending, e := h.s.CreateUpload(h.ctx, user, "reuse-lost", r)
+	must(t, e)
+	if pending.UploadID == "" || pending.State != "verifying" {
+		t.Fatal(pending.State)
 	}
 	writes := totalWrites(h)
 	must(t, h.s.Close(h.ctx))
@@ -179,9 +181,7 @@ func TestCancelledReuseReleasesOnlyTheNewHandle(t *testing.T) {
 	r := request(data)
 	r.ReuseExisting = true
 	copy, e := h.s.CreateUpload(h.ctx, user, "pending-reuse", r)
-	if !errors.Is(e, media.ErrUnavailable) {
-		t.Fatal(e)
-	}
+	must(t, e)
 	if copy.ID == "" || copy.UploadID == "" {
 		t.Fatal("lost durable upload identity")
 	}
