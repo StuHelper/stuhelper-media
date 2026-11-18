@@ -158,6 +158,15 @@ func (h *handler) mount(m *http.ServeMux, path string, upload bool, run endpoint
 	m.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		ctx, cancel := context.WithTimeout(r.Context(), h.s.OperationTimeout())
+		defer cancel()
+		r = r.WithContext(ctx)
+		controller := http.NewResponseController(w)
+		deadline, _ := ctx.Deadline()
+		_ = controller.SetReadDeadline(deadline)
+		_ = controller.SetWriteDeadline(deadline)
+		stop := context.AfterFunc(ctx, func() { _ = controller.SetReadDeadline(time.Now()); _ = controller.SetWriteDeadline(time.Now()) })
+		defer stop()
 		p, e := h.auth.Authenticate(r)
 		if e != nil || !p.Valid() {
 			if errors.Is(e, media.ErrUnavailable) {
@@ -167,15 +176,6 @@ func (h *handler) mount(m *http.ServeMux, path string, upload bool, run endpoint
 			}
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-		defer cancel()
-		r = r.WithContext(ctx)
-		controller := http.NewResponseController(w)
-		deadline, _ := ctx.Deadline()
-		_ = controller.SetReadDeadline(deadline)
-		_ = controller.SetWriteDeadline(deadline)
-		stop := context.AfterFunc(ctx, func() { _ = controller.SetReadDeadline(time.Now()); _ = controller.SetWriteDeadline(time.Now()) })
-		defer stop()
 		max := int64(65536)
 		if upload {
 			max = h.max
