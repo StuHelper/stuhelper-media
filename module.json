@@ -17,7 +17,9 @@
       "document_test.go#TestDocumentTypeValidation"
     ],
     "MEDIA-02": [
-      "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle"
+      "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle",
+      "integration_test.go#TestCleanedQuotaAndLiveReferenceLimit",
+      "integration_test.go#TestDeletedFileRetiresAfterAllVersionsClean"
     ],
     "MEDIA-03": [
       "integration_test.go#TestImmutableVersionsOwnershipAndCurrentBusinessAuthorization"

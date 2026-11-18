@@ -24,6 +24,7 @@ type transaction struct {
 	ctx context.Context
 }
 type fileRecord struct {
+	Retired bool `json:"retired,omitempty"`
 	media.File
 	Owner       media.Principal `json:"owner"`
 	NextVersion int             `json:"next_version"`
@@ -137,6 +138,7 @@ func owner(p media.Principal) string {
 }
 func (t *transaction) File(id string) (media.File, error) {
 	r, e := read[fileRecord](t, `SELECT data FROM media.files WHERE id=$1`, id)
+	r.File.Retired = r.Retired
 	r.File.Owner = r.Owner
 	r.File.NextVersion = r.NextVersion
 	return r.File, e
@@ -146,7 +148,7 @@ func (t *transaction) Files(p media.Principal, limit int, cursor string) ([]medi
 		fileRecord
 		Protections []media.Protection `json:"protections"`
 	}
-	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protections',v.protections) FROM media.files f JOIN LATERAL (SELECT jsonb_agg(DISTINCT CASE WHEN COALESCE((data->>'approved')::boolean,false) THEN data->'profile'->'published' ELSE data->'profile'->'quarantine' END) AS protections FROM media.versions WHERE file_id=f.id) v ON v.protections IS NOT NULL WHERE owner_key=$1 AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
+	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protections',v.protections) FROM media.files f JOIN LATERAL (SELECT jsonb_agg(DISTINCT CASE WHEN COALESCE((data->>'approved')::boolean,false) THEN data->'profile'->'published' ELSE data->'profile'->'quarantine' END) AS protections FROM media.versions WHERE file_id=f.id) v ON v.protections IS NOT NULL WHERE owner_key=$1 AND NOT (f.data @> '{"retired":true}') AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
 	out := []media.FileListing{}
 	for _, r := range rows {
 		f := r.File
@@ -161,7 +163,7 @@ func (t *transaction) Files(p media.Principal, limit int, cursor string) ([]medi
 	return out, e
 }
 func (t *transaction) SaveFile(v media.File) error {
-	return t.save(`INSERT INTO media.files(id,owner_key,data) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, fileRecord{v, v.Owner, v.NextVersion}, v.ID, owner(v.Owner))
+	return t.save(`INSERT INTO media.files(id,owner_key,data) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, fileRecord{v.Retired, v, v.Owner, v.NextVersion}, v.ID, owner(v.Owner))
 }
 func (t *transaction) Version(id string) (media.Version, error) {
 	v, e := read[versionRecord](t, `SELECT data FROM media.versions WHERE id=$1`, id)
@@ -207,7 +209,7 @@ func (t *transaction) SaveVersion(v media.Version) error {
 	return nil
 }
 func (t *transaction) Counts(p media.Principal) (files, open int, err error) {
-	err = t.tx.QueryRowContext(t.ctx, `SELECT (SELECT count(*) FROM media.files WHERE owner_key=$1),(SELECT count(*) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND v.state IN ('created','uploading','verifying'))`, owner(p)).Scan(&files, &open)
+	err = t.tx.QueryRowContext(t.ctx, `SELECT (SELECT count(*) FROM media.files WHERE owner_key=$1 AND NOT(data @> '{"retired":true}')),(SELECT count(*) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND v.state IN ('created','uploading','verifying'))`, owner(p)).Scan(&files, &open)
 	return files, open, safe(err)
 }
 func (t *transaction) Replay(k string) (media.Replay, error) {

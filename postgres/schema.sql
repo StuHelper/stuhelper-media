@@ -10,6 +10,11 @@ CREATE TABLE IF NOT EXISTS media.versions (
  data jsonb NOT NULL, UNIQUE(file_id,number)
 );
 CREATE INDEX IF NOT EXISTS media_content_reuse ON media.versions((data->>'sha256'),((data->>'size')::bigint),(data->>'content_type'),file_id,id) WHERE state IN ('awaiting_approval','approved','ready');
+-- Retain historical identities and idempotency while releasing active quota.
+UPDATE media.files f SET data=data || jsonb_build_object('retired',true,'disabled',true,'deleting',false,'revision',(data->>'revision')::bigint+1)
+WHERE NOT (data @> '{"retired":true}')
+ AND EXISTS (SELECT FROM media.versions WHERE file_id=f.id)
+ AND NOT EXISTS (SELECT FROM media.versions WHERE file_id=f.id AND NOT(data @> '{"cleanup_complete":true}'));
 CREATE TABLE IF NOT EXISTS media.references (
  id text PRIMARY KEY, version_id text NOT NULL REFERENCES media.versions(id), data jsonb NOT NULL
 );
