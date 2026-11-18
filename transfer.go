@@ -3,6 +3,8 @@ package media
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	storage "github.com/StuHelper/stuhelper-storage"
 	"io"
@@ -10,6 +12,15 @@ import (
 	"net/http"
 	"time"
 )
+
+func streamMatches(src io.Reader, size int64, wantSHA256 string) bool {
+	h := sha256.New()
+	n, err := io.Copy(h, io.LimitReader(src, size+1))
+	if err != nil || n != size {
+		return false
+	}
+	return hex.EncodeToString(h.Sum(nil)) == wantSHA256
+}
 
 func (s *Service) ensureObject(ctx context.Context, v Version) (string, error) {
 	if v.ObjectID != "" && (!v.Reused || v.State != "verifying") {
@@ -54,6 +65,18 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 	var v Version
 	var complete bool
 	var reused bool
+	var checkVerifying bool
+	startLease := func(tx Transaction, current *Version) error {
+		current.State = "uploading"
+		current.UploadGeneration++
+		current.UploadKey = key
+		current.UploadUntil = s.now().Add(s.cfg.OperationTimeout + time.Second)
+		current.Revision++
+		if err := tx.SaveVersion(*current); err != nil {
+			return err
+		}
+		return s.schedule(tx, current.ID, true)
+	}
 	e = s.repo.Transaction(ctx, func(tx Transaction) error {
 		initial, e := tx.Upload(id)
 		if e != nil {
@@ -73,12 +96,15 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		if f.Disabled || f.Deleting || terminal(v) {
 			return ErrConflict
 		}
-		if v.State == "awaiting_approval" || v.Approved {
-			complete = true
-			return nil
-		}
 		if v.Reused {
 			reused = true
+			return nil
+		}
+		if v.UploadKey != "" && v.UploadKey != key {
+			return ErrConflict
+		}
+		if v.State == "awaiting_approval" || v.Approved {
+			complete = true
 			return nil
 		}
 		if !v.ExpiresAt.After(s.now()) {
@@ -87,20 +113,93 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		if v.UploadUntil.After(s.now()) {
 			return ErrConflict
 		}
-		v.State = "uploading"
-		v.UploadGeneration++
-		v.UploadUntil = s.now().Add(s.cfg.OperationTimeout + time.Second)
-		v.Revision++
-		if e = tx.SaveVersion(v); e != nil {
+		if v.State == "verifying" && v.ObjectIssued && v.TypeValidated {
+			checkVerifying = true
+			return nil
+		}
+		if e = startLease(tx, &v); e != nil {
 			return e
 		}
-		return s.schedule(tx, v.ID, true)
+		return nil
 	})
-	if e != nil || complete {
+	if e != nil {
 		return v, e
 	}
 	if reused {
 		return s.reuseUpload(ctx, p, v.ID)
+	}
+	if complete {
+		if !streamMatches(src, v.Size, v.SHA256) {
+			return Version{}, ErrConflict
+		}
+		return v, nil
+	}
+	if checkVerifying {
+		objID, objErr := s.ensureObject(ctx, v)
+		if objErr != nil {
+			return v, objErr
+		}
+		status, statusErr := s.store.Status(ctx, s.cfg.Actor, objID)
+		if statusErr != nil {
+			return v, storeError(statusErr)
+		}
+		if status.Healthy > 0 {
+			if !streamMatches(src, v.Size, v.SHA256) {
+				return Version{}, ErrConflict
+			}
+			if err := s.updateObserved(ctx, v, "awaiting_approval"); err != nil {
+				return Version{}, err
+			}
+			err := s.repo.Transaction(ctx, func(tx Transaction) error {
+				f, current, err := s.load(tx, v.ID)
+				if err != nil {
+					return err
+				}
+				if f.Disabled || f.Deleting || terminal(current) || (!current.Approved && current.State != "awaiting_approval") {
+					return ErrConflict
+				}
+				v = current
+				return s.authorize(ctx, p, "media.uploads.write", access(f, v, nil))
+			})
+			return v, err
+		}
+		var alreadyDone bool
+		e = s.repo.Transaction(ctx, func(tx Transaction) error {
+			f, current, err := s.load(tx, v.ID)
+			if err != nil {
+				return err
+			}
+			v = current
+			if e := s.authorize(ctx, p, "media.uploads.write", access(f, v, nil)); e != nil {
+				return e
+			}
+			if f.Disabled || f.Deleting || terminal(v) {
+				return ErrConflict
+			}
+			if v.State == "awaiting_approval" || v.Approved {
+				if v.UploadKey != "" && v.UploadKey != key {
+					return ErrConflict
+				}
+				alreadyDone = true
+				return nil
+			}
+			if !v.ExpiresAt.After(s.now()) {
+				return ErrExpired
+			}
+			if v.UploadUntil.After(s.now()) {
+				return ErrConflict
+			}
+			return startLease(tx, &v)
+		})
+		if e != nil {
+			return v, e
+		}
+		if alreadyDone {
+			if !streamMatches(src, v.Size, v.SHA256) {
+				return Version{}, ErrConflict
+			}
+			return v, nil
+		}
 	}
 	prefix, e := io.ReadAll(io.LimitReader(src, 512))
 	if e == nil {
@@ -150,13 +249,31 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	var out Version
+	var fencedErr error
 	save := s.repo.Transaction(finish, func(tx Transaction) error {
-		_, current, err := s.load(tx, v.ID)
+		f, current, err := s.load(tx, v.ID)
 		if err != nil {
 			return err
 		}
 		out = current
-		if current.UploadGeneration != v.UploadGeneration || terminal(current) {
+		if current.UploadGeneration != v.UploadGeneration || terminal(current) || f.Disabled || f.Deleting || current.Approved || current.State != "uploading" || !current.UploadUntil.After(s.now()) {
+			if current.UploadGeneration == v.UploadGeneration && !current.UploadUntil.IsZero() && (terminal(current) || f.Disabled || f.Deleting) {
+				current.UploadUntil = time.Time{}
+				out = current
+				if err = tx.SaveVersion(current); err != nil {
+					return err
+				}
+			}
+			switch {
+			case current.State == "expired":
+				fencedErr = ErrExpired
+			case terminal(current) || f.Disabled || f.Deleting || current.UploadGeneration != v.UploadGeneration || current.Approved || current.State != "uploading":
+				fencedErr = ErrConflict
+			case e != nil:
+				fencedErr = e
+			default:
+				fencedErr = ErrUnavailable
+			}
 			return nil
 		}
 		current.UploadUntil = time.Time{}
@@ -183,6 +300,9 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 	})
 	if save != nil {
 		return out, save
+	}
+	if fencedErr != nil {
+		return out, fencedErr
 	}
 	return out, e
 }

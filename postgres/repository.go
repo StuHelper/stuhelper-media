@@ -36,6 +36,7 @@ type versionRecord struct {
 	ObjectID         string            `json:"object_id"`
 	ObjectIssued     bool              `json:"object_issued"`
 	TypeValidated    bool              `json:"type_validated"`
+	UploadKey        string            `json:"upload_key,omitempty"`
 	UploadGeneration int64             `json:"upload_generation"`
 	UploadUntil      time.Time         `json:"upload_until"`
 	Profile          media.Profile     `json:"profile"`
@@ -43,7 +44,7 @@ type versionRecord struct {
 }
 
 func record(v media.Version) versionRecord {
-	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
+	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadKey, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
 }
 func (r versionRecord) value() media.Version {
 	v := r.Version
@@ -53,6 +54,7 @@ func (r versionRecord) value() media.Version {
 	v.ObjectID = r.ObjectID
 	v.ObjectIssued = r.ObjectIssued
 	v.TypeValidated = r.TypeValidated
+	v.UploadKey = r.UploadKey
 	v.UploadGeneration = r.UploadGeneration
 	v.UploadUntil = r.UploadUntil
 	v.Profile = r.Profile
