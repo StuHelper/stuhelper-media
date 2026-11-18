@@ -11,43 +11,72 @@
   ],
   "scenario_tests": {
     "MEDIA-01": [
-      "integration_test.go#TestValidationExpiryAndConcurrentIdempotency"
+      "integration_test.go#TestValidationExpiryAndConcurrentIdempotency",
+      "integration_test.go#TestUploadIdempotencyKeyAndVerifyingReconciliation",
+      "integration_test.go#TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload",
+      "document_test.go#TestDocumentTypeValidation",
+      "integration_test.go#TestReplayExpiryAndReleasedHistory"
     ],
     "MEDIA-02": [
-      "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle"
+      "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle",
+      "integration_test.go#TestCleanedQuotaAndLiveReferenceLimit",
+      "integration_test.go#TestDeletedFileRetiresAfterAllVersionsClean"
     ],
     "MEDIA-03": [
       "integration_test.go#TestImmutableVersionsOwnershipAndCurrentBusinessAuthorization"
     ],
     "MEDIA-04": [
-      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent"
+      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent",
+      "integration_test.go#TestStaleUploadFinishCannotOverwriteApprovedOrPublishedVersion",
+      "integration_test.go#TestCleanupBackoffAndBlockedEvidence",
+      "integration_test.go#TestMetadataOperationDrainsOnClose",
+      "integration_test.go#TestUploadLeaseConcurrencyAndReviewDownloadBoundaries"
     ],
     "MEDIA-05": [
-      "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"
+      "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences",
+      "integration_test.go#TestOutboxPreservesWriteOrder",
+      "integration_test.go#TestReferenceEventContextAndExcludedSubjects",
+      "integration_test.go#TestOutboxMigrationAndCommitNotification",
+      "integration_test.go#TestReviewAuditAndFileEnableEvent",
+      "integration_test.go#TestRuntimeRejectsAuditTruncate",
+      "integration_test.go#TestRuntimeRejectsSchemaOwnerMembership"
     ],
     "MEDIA-06": [
-      "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent"
+      "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent",
+      "http_test.go#TestPortableFilenamesAndRouting",
+      "http_test.go#TestConnectionDeadlineClearedAfterRequest",
+      "http_test.go#TestHTTPReuseLifecycleArchiveAbortAndPayloadLimits",
+      "http_test.go#TestCheckWithPostgresScriptBinaryResolution"
     ],
     "MEDIA-07": [
       "integration_test.go#TestLostCreateAfterReplayWindowExpiresCleansOriginalObject"
     ],
     "MEDIA-08": [
-      "archive_test.go#TestArchiveManifestCurrentRightsAndSingleTransferSlot"
+      "archive_test.go#TestArchiveManifestCurrentRightsAndSingleTransferSlot",
+      "integration_test.go#TestManifestUsesOneSnapshot",
+      "archive_test.go#TestArchivePreservesLegacyNameInManifest"
     ],
     "MEDIA-09": [
-      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission"
+      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission",
+      "archive_test.go#TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization",
+      "integration_test.go#TestMetadataReadsUseCommittedSnapshotsDuringWriteLock"
     ],
     "MEDIA-10": [
-      "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission"
+      "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission",
+      "archive_test.go#TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization",
+      "http_test.go#TestHTTPReviewAndBodyLimits",
+      "integration_test.go#TestUploadLeaseConcurrencyAndReviewDownloadBoundaries"
     ],
     "MEDIA-11": [
       "reuse_test.go#TestOwnContentReuseKeepsIndependentApprovalAndReferences",
-      "reuse_test.go#TestDigestAloneCannotReuseAnotherOwnersFile"
+      "reuse_test.go#TestDigestAloneCannotReuseAnotherOwnersFile",
+      "integration_test.go#TestReusePlanStartsWithOwner"
     ],
     "MEDIA-12": [
       "reuse_test.go#TestReuseRequiresCurrentSourceRightsAndProfile",
       "reuse_test.go#TestReuseLostResponseAndRestartDoNotResendOrApprove",
-      "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle"
+      "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle",
+      "http_test.go#TestHTTPReuseReturnsDurableSession"
     ],
     "MEDIA-17": [
       "http_test.go#TestHTTPStructuredErrorCodesLimitsAndRetryAfter"

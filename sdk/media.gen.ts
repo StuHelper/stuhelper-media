@@ -229,20 +229,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/media/versions/{id}/review-content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Requires current media.versions.review authorization before the first byte. Returns verified content as an attachment. */
+        get: operations["DownloadReviewContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @enum {string} */
-        VersionState: "created" | "uploading" | "verifying" | "awaiting_approval" | "approved" | "ready" | "cancelled" | "expired" | "rejected" | "deleting" | "deleted";
-        /** @enum {string} */
-        ReferenceState: "pending" | "publishing" | "active" | "released";
-        /** @enum {string} */
-        StorageState: "" | "pending" | "ready" | "degraded" | "unavailable" | "deleting" | "deleted";
-        /** @enum {string} */
-        VersionErrorCode: "" | "media_integrity_failed" | "media_content_type_rejected" | "media_upload_expired" | "media_upload_result_unconfirmed" | "media_unavailable" | "media_permission_denied" | "media_conflict" | "media_capacity_unavailable" | "media_transfer_busy";
-        /** @enum {string} */
-        ProblemCode: "authentication_required" | "media_invalid_input" | "media_filename_invalid" | "media_type_not_allowed" | "media_permission_denied" | "media_not_found" | "media_conflict" | "media_upload_expired" | "media_upload_too_large" | "media_archive_too_large" | "media_integrity_failed" | "media_content_type_rejected" | "media_open_uploads_limit" | "media_file_limit_exceeded" | "media_version_limit_exceeded" | "media_reference_limit_exceeded" | "media_transfer_busy" | "media_capacity_unavailable" | "media_unavailable";
         Problem: {
             code: components["schemas"]["ProblemCode"];
             /** Format: int64 */
@@ -334,11 +341,8 @@ export interface components {
             /** Format: int64 */
             size: number;
             sha256: string;
-            /**
-             * @description Attempt to reuse a completed upload owned by the current user with the same purpose, configured protection, content type, size and SHA-256. A different user digest alone never skips upload.
-             * @default false
-             */
-            reuse_existing: boolean;
+            /** @description Attempt to reuse a completed upload owned by the current user with the same purpose, configured protection, content type, size and SHA-256. A different user digest alone never skips upload. Omission disables reuse. */
+            reuse_existing?: boolean;
         };
         Binding: {
             module: string;
@@ -384,8 +388,38 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        /** @enum {string} */
+        VersionState: "created" | "uploading" | "verifying" | "awaiting_approval" | "approved" | "ready" | "cancelled" | "expired" | "rejected" | "deleting" | "deleted";
+        /** @enum {string} */
+        ReferenceState: "pending" | "publishing" | "active" | "released";
+        /** @enum {string} */
+        StorageState: "" | "pending" | "ready" | "degraded" | "unavailable" | "deleting" | "deleted";
+        /** @enum {string} */
+        VersionErrorCode: "" | "media_integrity_failed" | "media_content_type_rejected" | "media_upload_expired" | "media_upload_result_unconfirmed" | "media_unavailable" | "media_permission_denied" | "media_conflict" | "media_capacity_unavailable" | "media_transfer_busy";
+        /** @enum {string} */
+        ProblemCode: "authentication_required" | "media_invalid_input" | "media_filename_invalid" | "media_type_not_allowed" | "media_permission_denied" | "media_not_found" | "media_conflict" | "media_upload_expired" | "media_upload_too_large" | "media_archive_too_large" | "media_integrity_failed" | "media_content_type_rejected" | "media_open_uploads_limit" | "media_file_limit_exceeded" | "media_version_limit_exceeded" | "media_reference_limit_exceeded" | "media_transfer_busy" | "media_capacity_unavailable" | "media_unavailable" | "method_not_allowed";
     };
-    responses: never;
+    responses: {
+        /** @description Sanitized failure */
+        SanitizedFailure: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Sanitized failure */
+        RetryableFailure: {
+            headers: {
+                "Retry-After"?: string;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Problem"];
+            };
+        };
+    };
     parameters: never;
     requestBodies: never;
     headers: never;
@@ -417,97 +451,16 @@ export interface operations {
                     "application/json": components["schemas"]["Version"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     GetUpload: {
@@ -530,97 +483,16 @@ export interface operations {
                     "application/json": components["schemas"]["VersionView"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     CancelUpload: {
@@ -645,97 +517,16 @@ export interface operations {
                     "application/json": components["schemas"]["Version"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     UploadContent: {
@@ -764,97 +555,16 @@ export interface operations {
                     "application/json": components["schemas"]["Version"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     GetFile: {
@@ -877,97 +587,16 @@ export interface operations {
                     "application/json": components["schemas"]["FileView"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     DeleteFile: {
@@ -996,97 +625,16 @@ export interface operations {
                     "application/json": components["schemas"]["FileView"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     SetFileState: {
@@ -1115,97 +663,16 @@ export interface operations {
                     "application/json": components["schemas"]["FileView"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     GetVersion: {
@@ -1228,97 +695,16 @@ export interface operations {
                     "application/json": components["schemas"]["VersionView"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     ApproveVersion: {
@@ -1343,97 +729,16 @@ export interface operations {
                     "application/json": components["schemas"]["Version"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     AttachReference: {
@@ -1462,97 +767,16 @@ export interface operations {
                     "application/json": components["schemas"]["Reference"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     GetReference: {
@@ -1575,97 +799,16 @@ export interface operations {
                     "application/json": components["schemas"]["Reference"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     ReleaseReference: {
@@ -1690,97 +833,16 @@ export interface operations {
                     "application/json": components["schemas"]["Reference"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     PublishReference: {
@@ -1805,97 +867,16 @@ export interface operations {
                     "application/json": components["schemas"]["Reference"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     DownloadReference: {
@@ -1918,97 +899,16 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     ListFiles: {
@@ -2032,97 +932,16 @@ export interface operations {
                     "application/json": components["schemas"]["FilePage"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     ArchiveManifest: {
@@ -2147,97 +966,16 @@ export interface operations {
                     "application/json": components["schemas"]["ArchiveManifest"];
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     DownloadArchive: {
@@ -2262,97 +1000,47 @@ export interface operations {
                     "application/zip": string;
                 };
             };
-            /** @description Sanitized failure */
-            400: {
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
+        };
+    };
+    DownloadReviewContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verified review content. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Problem"];
+                    "application/octet-stream": string;
                 };
             };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    "Retry-After"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["SanitizedFailure"];
         };
     };
 }
