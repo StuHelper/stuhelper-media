@@ -13,6 +13,8 @@ import (
 	"sync"
 )
 
+const maxStagingFiles = 10000
+
 type uploadStaging struct {
 	mu            sync.Mutex
 	root          *os.Root
@@ -89,11 +91,11 @@ func openUploadStaging(parent string, limit int64) (*uploadStaging, error) {
 		return nil, ErrUnavailable
 	}
 	defer dir.Close()
-	entries, err := dir.ReadDir(10001)
+	entries, err := dir.ReadDir(maxStagingFiles + 1)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, ErrUnavailable
 	}
-	if len(entries) > 10000 {
+	if len(entries) > maxStagingFiles {
 		return nil, ErrCapacity
 	}
 	for _, entry := range entries {
@@ -127,16 +129,10 @@ func (s *uploadStaging) size(versionID string) int64 {
 	}
 	fi, err := s.root.Stat(partName(versionID))
 	if err != nil {
-		if old, ok := s.sizes[versionID]; ok {
-			s.reserved -= old
-			delete(s.sizes, versionID)
-		}
 		return 0
 	}
-	cur := fi.Size()
-	s.reserved += cur - s.sizes[versionID]
-	s.sizes[versionID] = cur
-	return cur
+	return fi.Size()
+
 }
 
 func (s *uploadStaging) appendChunk(ctx context.Context, versionID string, offset, maxTotal int64, src io.Reader) (int64, int64, string, []byte, error) {
@@ -154,27 +150,39 @@ func (s *uploadStaging) appendChunk(ctx context.Context, versionID string, offse
 		return offset, 0, "", nil, ErrConflict
 	}
 	var cur int64
-	if fi, err := s.root.Stat(name); err == nil {
-		cur = fi.Size()
-	} else if !errors.Is(err, os.ErrNotExist) {
+	info, statErr := s.root.Stat(name)
+	switch {
+	case statErr == nil:
+		cur = info.Size()
+	case errors.Is(statErr, os.ErrNotExist):
+		if len(s.sizes) >= maxStagingFiles {
+			s.mu.Unlock()
+			return offset, 0, "", nil, ErrCapacity
+		}
+	default:
 		s.mu.Unlock()
 		return offset, 0, "", nil, ErrUnavailable
 	}
-	s.reserved += cur - s.sizes[versionID]
-	s.sizes[versionID] = cur
-	if cur != offset {
+	if cur < offset || ctx.Err() != nil {
 		s.mu.Unlock()
 		return cur, 0, "", nil, ErrConflict
 	}
-	flags := os.O_RDWR
-	if offset == 0 {
-		flags = os.O_CREATE | os.O_RDWR | os.O_TRUNC
-	}
-	f, err := s.root.OpenFile(name, flags, 0600)
+	f, err := s.root.OpenFile(name, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		s.mu.Unlock()
 		return offset, 0, "", nil, ErrUnavailable
 	}
+	// The caller verified offset against the committed DB row under its lease.
+	// A larger file contains bytes from an interrupted or uncommitted append.
+	if cur > offset {
+		if err = f.Truncate(offset); err != nil {
+			_ = f.Close()
+			s.mu.Unlock()
+			return offset, 0, "", nil, ErrUnavailable
+		}
+	}
+	s.reserved += offset - s.sizes[versionID]
+	s.sizes[versionID] = offset
 	s.busy[versionID] = true
 	s.mu.Unlock()
 
@@ -250,11 +258,17 @@ func (s *uploadStaging) appendChunk(ctx context.Context, versionID string, offse
 		return offset, 0, "", nil, ErrInput
 	}
 
-	prefixLen := min(int64(512), offset+written)
+	prefixLen := min(int64(3072), offset+written)
 	prefix := make([]byte, prefixLen)
 	if _, err = f.ReadAt(prefix, 0); err != nil && !errors.Is(err, io.EOF) {
 		rollback()
 		return offset, 0, "", nil, ErrUnavailable
+	}
+	if s.ephemeralPath == "" {
+		if err = f.Sync(); err != nil {
+			rollback()
+			return offset, 0, "", nil, ErrUnavailable
+		}
 	}
 	if err = f.Close(); err != nil {
 		s.mu.Lock()

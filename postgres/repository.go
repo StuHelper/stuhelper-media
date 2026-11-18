@@ -24,6 +24,7 @@ type transaction struct {
 	ctx context.Context
 }
 type fileRecord struct {
+	Retired bool `json:"retired,omitempty"`
 	media.File
 	Owner       media.Principal `json:"owner"`
 	NextVersion int             `json:"next_version"`
@@ -33,21 +34,23 @@ type versionRecord struct {
 	ReuseSource string `json:"reuse_source,omitempty"`
 	ReuseObject string `json:"reuse_object,omitempty"`
 	media.Version
-	ObjectID         string            `json:"object_id"`
-	ObjectIssued     bool              `json:"object_issued"`
-	TypeValidated    bool              `json:"type_validated"`
-	UploadGeneration int64             `json:"upload_generation"`
-	UploadUntil      time.Time         `json:"upload_until"`
-	ChunkKey         string            `json:"chunk_key,omitempty"`
-	ChunkOffset      int64             `json:"chunk_offset,omitempty"`
-	ChunkSize        int64             `json:"chunk_size,omitempty"`
-	ChunkSHA256      string            `json:"chunk_sha256,omitempty"`
-	Profile          media.Profile     `json:"profile"`
-	References       []media.Reference `json:"references"`
+	ObjectID          string            `json:"object_id"`
+	HandleRetainLimit time.Time         `json:"handle_retain_limit,omitzero"`
+	ObjectIssued      bool              `json:"object_issued"`
+	TypeValidated     bool              `json:"type_validated"`
+	UploadKey         string            `json:"upload_key,omitempty"`
+	UploadGeneration  int64             `json:"upload_generation"`
+	UploadUntil       time.Time         `json:"upload_until"`
+	ChunkKey          string            `json:"chunk_key,omitempty"`
+	ChunkOffset       int64             `json:"chunk_offset,omitempty"`
+	ChunkSize         int64             `json:"chunk_size,omitempty"`
+	ChunkSHA256       string            `json:"chunk_sha256,omitempty"`
+	Profile           media.Profile     `json:"profile"`
+	References        []media.Reference `json:"references"`
 }
 
 func record(v media.Version) versionRecord {
-	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadGeneration, v.UploadUntil, v.ChunkKey, v.ChunkOffset, v.ChunkSize, v.ChunkSHA256, v.Profile, v.References}
+	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.HandleRetainLimit, v.ObjectIssued, v.TypeValidated, v.UploadKey, v.UploadGeneration, v.UploadUntil, v.ChunkKey, v.ChunkOffset, v.ChunkSize, v.ChunkSHA256, v.Profile, v.References}
 }
 func (r versionRecord) value() media.Version {
 	v := r.Version
@@ -55,8 +58,10 @@ func (r versionRecord) value() media.Version {
 	v.ReuseSource = r.ReuseSource
 	v.ReuseObject = r.ReuseObject
 	v.ObjectID = r.ObjectID
+	v.HandleRetainLimit = r.HandleRetainLimit
 	v.ObjectIssued = r.ObjectIssued
 	v.TypeValidated = r.TypeValidated
+	v.UploadKey = r.UploadKey
 	v.UploadGeneration = r.UploadGeneration
 	v.UploadUntil = r.UploadUntil
 	v.ChunkKey = r.ChunkKey
@@ -143,27 +148,74 @@ func owner(p media.Principal) string {
 }
 func (t *transaction) File(id string) (media.File, error) {
 	r, e := read[fileRecord](t, `SELECT data FROM media.files WHERE id=$1`, id)
-	r.File.Owner = r.Owner
-	r.File.NextVersion = r.NextVersion
-	return r.File, e
+	return r.value(), e
+}
+
+type snapshotRow struct {
+	File      fileRecord
+	Version   versionRecord
+	Reference media.Reference
+}
+
+func (r fileRecord) value() media.File {
+	f := r.File
+	f.Retired = r.Retired
+	f.Owner = r.Owner
+	f.NextVersion = r.NextVersion
+	return f
+}
+func (t *transaction) ReadVersion(id string, byUpload bool) (media.File, media.Version, error) {
+	const base = `SELECT jsonb_build_object('file',f.data,'version',v.data) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE `
+	key := "v.id=$1"
+	if byUpload {
+		key = "v.upload_id=$1"
+	}
+	r, e := read[snapshotRow](t, base+key, id)
+	return r.File.value(), r.Version.value(), e
+}
+func (t *transaction) ReadFile(id string) (media.FileView, error) {
+	r, e := read[struct {
+		File     fileRecord
+		Versions []versionRecord
+	}](t, `SELECT jsonb_build_object('file',f.data,'versions',(SELECT jsonb_agg(v.data ORDER BY number) FROM media.versions v WHERE v.file_id=f.id)) FROM media.files f WHERE f.id=$1`, id)
+	if e != nil {
+		return media.FileView{}, e
+	}
+	out := media.FileView{File: r.File.value()}
+	for _, v := range r.Versions {
+		out.Versions = append(out.Versions, v.value())
+	}
+	return out, nil
+}
+func (t *transaction) ReadReferences(ids []string) (map[string]media.ReferenceSnapshot, error) {
+	rows, e := list[snapshotRow](t, `SELECT jsonb_build_object('reference',r.data,'version',v.data,'file',f.data) FROM media.references r JOIN media.versions v ON v.id=r.version_id JOIN media.files f ON f.id=v.file_id WHERE r.id=ANY($1::text[])`, ids)
+	out := make(map[string]media.ReferenceSnapshot, len(rows))
+	for _, row := range rows {
+		out[row.Reference.ID] = media.ReferenceSnapshot{File: row.File.value(), Version: row.Version.value(), Reference: row.Reference}
+	}
+	return out, e
 }
 func (t *transaction) Files(p media.Principal, limit int, cursor string) ([]media.FileListing, error) {
 	type row struct {
 		fileRecord
-		Protection media.Protection `json:"protection"`
+		Protections []media.Protection `json:"protections"`
 	}
-	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protection',v.data->'profile'->'published') FROM media.files f JOIN LATERAL (SELECT data FROM media.versions WHERE file_id=f.id ORDER BY number LIMIT 1) v ON true WHERE owner_key=$1 AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
+	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protections',v.protections) FROM media.files f JOIN LATERAL (SELECT jsonb_agg(DISTINCT CASE WHEN COALESCE((data->>'approved')::boolean,false) THEN data->'profile'->'published' ELSE data->'profile'->'quarantine' END) AS protections FROM media.versions WHERE file_id=f.id) v ON v.protections IS NOT NULL WHERE owner_key=$1 AND NOT (f.data @> '{"retired":true}') AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
 	out := []media.FileListing{}
 	for _, r := range rows {
 		f := r.File
 		f.Owner = r.Owner
 		f.NextVersion = r.NextVersion
-		out = append(out, media.FileListing{File: f, Protection: r.Protection})
+		var first media.Protection
+		if len(r.Protections) > 0 {
+			first = r.Protections[0]
+		}
+		out = append(out, media.FileListing{File: f, Protection: first, Protections: r.Protections})
 	}
 	return out, e
 }
 func (t *transaction) SaveFile(v media.File) error {
-	return t.save(`INSERT INTO media.files(id,owner_key,data) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, fileRecord{v, v.Owner, v.NextVersion}, v.ID, owner(v.Owner))
+	return t.save(`INSERT INTO media.files(id,owner_key,data) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, fileRecord{v.Retired, v, v.Owner, v.NextVersion}, v.ID, owner(v.Owner))
 }
 func (t *transaction) Version(id string) (media.Version, error) {
 	v, e := read[versionRecord](t, `SELECT data FROM media.versions WHERE id=$1`, id)
@@ -209,14 +261,18 @@ func (t *transaction) SaveVersion(v media.Version) error {
 	return nil
 }
 func (t *transaction) Counts(p media.Principal) (files, open int, err error) {
-	err = t.tx.QueryRowContext(t.ctx, `SELECT (SELECT count(*) FROM media.files WHERE owner_key=$1),(SELECT count(*) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND v.state IN ('created','uploading','verifying'))`, owner(p)).Scan(&files, &open)
+	err = t.tx.QueryRowContext(t.ctx, `SELECT (SELECT count(*) FROM media.files WHERE owner_key=$1 AND NOT(data @> '{"retired":true}')),(SELECT count(*) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND v.state IN ('created','uploading','verifying'))`, owner(p)).Scan(&files, &open)
 	return files, open, safe(err)
 }
-func (t *transaction) Replay(k string) (media.Replay, error) {
-	return read[media.Replay](t, `SELECT data FROM media.replays WHERE key=$1`, k)
+func (t *transaction) Replay(k string, now time.Time) (media.Replay, error) {
+	return read[media.Replay](t, `SELECT data FROM media.replays WHERE key=$1 AND expires_at>$2`, k, now)
 }
 func (t *transaction) SaveReplay(v media.Replay) error {
-	return t.save(`INSERT INTO media.replays(key,data) VALUES($1,$2)`, v, v.Key)
+	return t.save(`INSERT INTO media.replays(key,expires_at,data) VALUES($1,$2,$3) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at,data=excluded.data`, v, v.Key, v.CreatedAt.Add(24*time.Hour))
+}
+func (t *transaction) PruneReplays(now time.Time, limit int) error {
+	_, err := t.tx.ExecContext(t.ctx, `WITH expired AS (SELECT key FROM media.replays WHERE expires_at<=$1 ORDER BY expires_at,key LIMIT $2 FOR UPDATE SKIP LOCKED) DELETE FROM media.replays r USING expired e WHERE r.key=e.key`, now, limit)
+	return safe(err)
 }
 func (t *transaction) Job(id string) (media.Job, error) {
 	return read[media.Job](t, `SELECT data FROM media.jobs WHERE version_id=$1 FOR UPDATE`, id)
@@ -228,10 +284,16 @@ func (t *transaction) Event(e media.Event) error {
 	e.SpecVersion = "1.0"
 	e.Source = "stuhelper://media"
 	e.DataContentType = "application/json"
-	e.Data = media.EventData{Revision: e.Revision}
+	e.Data.Revision = e.Revision
 	if err := t.save(`INSERT INTO media.outbox(id,data) VALUES($1,$2)`, e, e.ID); err != nil {
 		return err
 	}
+	if _, err := t.tx.ExecContext(t.ctx, `SELECT pg_notify($1,'')`, media.OutboxChannel); err != nil {
+		return safe(err)
+	}
+	return t.Audit(e)
+}
+func (t *transaction) Audit(e media.Event) error {
 	return t.save(`INSERT INTO media.audit(id,data) VALUES($1,$2)`, struct {
 		Event media.Event     `json:"event"`
 		Actor media.Principal `json:"actor"`
@@ -255,13 +317,16 @@ func (r *Repository) Claim(ctx context.Context, worker string, now time.Time, le
 	return out, e
 }
 func (r *Repository) PendingEvents(ctx context.Context, n int) ([]media.Event, error) {
-	if n < 1 || n > 100 {
+	return r.PendingOutbox(ctx, n, nil)
+}
+func (r *Repository) PendingOutbox(ctx context.Context, n int, excluded []string) ([]media.Event, error) {
+	if n < 1 || n > 100 || len(excluded) > 1000 {
 		return nil, media.ErrInput
 	}
 	var out []media.Event
 	e := r.Transaction(ctx, func(tx media.Transaction) error {
 		var e error
-		out, e = list[media.Event](tx.(*transaction), `SELECT data FROM media.outbox WHERE NOT delivered ORDER BY id LIMIT $1`, n)
+		out, e = list[media.Event](tx.(*transaction), `SELECT data FROM media.outbox WHERE NOT delivered AND NOT ((data->>'subject')=ANY(coalesce($2::text[],ARRAY[]::text[]))) ORDER BY seq LIMIT $1`, n, excluded)
 		return e
 	})
 	return out, e
@@ -272,12 +337,12 @@ func (r *Repository) AcknowledgeEvent(ctx context.Context, id string) error {
 }
 func (r *Repository) CheckRuntime(ctx context.Context) error {
 	var super, createDB, createRole, ownerSchema, storageAccess bool
-	e := r.DB.QueryRowContext(ctx, `SELECT rolsuper,rolcreatedb,rolcreaterole,(SELECT nspowner=(SELECT oid FROM pg_roles WHERE rolname=current_user) FROM pg_namespace WHERE nspname='media'),COALESCE((SELECT has_schema_privilege(current_user,oid,'USAGE') FROM pg_namespace WHERE nspname='storage'),false) FROM pg_roles WHERE rolname=current_user`).Scan(&super, &createDB, &createRole, &ownerSchema, &storageAccess)
+	e := r.DB.QueryRowContext(ctx, `SELECT rolsuper,rolcreatedb,rolcreaterole,(SELECT pg_has_role(current_user,nspowner,'MEMBER') OR has_schema_privilege(current_user,oid,'CREATE') FROM pg_namespace WHERE nspname='media'),COALESCE((SELECT has_schema_privilege(current_user,oid,'USAGE') FROM pg_namespace WHERE nspname='storage'),false) FROM pg_roles WHERE rolname=current_user`).Scan(&super, &createDB, &createRole, &ownerSchema, &storageAccess)
 	if e != nil || super || createDB || createRole || ownerSchema || storageAccess {
 		return media.ErrDenied
 	}
 	var readAudit, writeAudit, changeAudit bool
-	e = r.DB.QueryRowContext(ctx, `SELECT has_table_privilege('media.audit','SELECT'),has_table_privilege('media.audit','INSERT'),has_table_privilege('media.audit','UPDATE,DELETE')`).Scan(&readAudit, &writeAudit, &changeAudit)
+	e = r.DB.QueryRowContext(ctx, `SELECT has_table_privilege('media.audit','SELECT'),has_table_privilege('media.audit','INSERT'),has_table_privilege('media.audit','UPDATE,DELETE,TRUNCATE')`).Scan(&readAudit, &writeAudit, &changeAudit)
 	if e != nil || !readAudit || !writeAudit || changeAudit {
 		return media.ErrDenied
 	}
@@ -287,7 +352,7 @@ func (r *Repository) CheckRuntime(ctx context.Context) error {
 // Only the owner's small matching set is considered. Current authorization and
 // complete profile equality are checked by Service before selecting a candidate.
 func (t *transaction) ReuseCandidates(p media.Principal, r media.UploadRequest) ([]media.Version, error) {
-	rows, e := list[versionRecord](t, `SELECT v.data FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND f.data->>'purpose'=$2 AND v.data->>'sha256'=$3 AND (v.data->>'size')::bigint=$4 AND v.data->>'content_type'=$5 AND v.state IN ('awaiting_approval','approved','ready') AND NOT (f.data->>'disabled')::boolean AND NOT (f.data->>'deleting')::boolean ORDER BY v.id LIMIT 10`, owner(p), r.Purpose, r.SHA256, r.Size, r.ContentType)
+	rows, e := list[versionRecord](t, `SELECT v.data FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE v.owner_key=$1 AND f.owner_key=$1 AND f.data->>'purpose'=$2 AND v.data->>'sha256'=$3 AND (v.data->>'size')::bigint=$4 AND v.data->>'content_type'=$5 AND v.state IN ('awaiting_approval','approved','ready') AND NOT (f.data->>'disabled')::boolean AND NOT (f.data->>'deleting')::boolean ORDER BY v.id LIMIT 10`, owner(p), r.Purpose, r.SHA256, r.Size, r.ContentType)
 	out := make([]media.Version, 0, len(rows))
 	for _, v := range rows {
 		out = append(out, v.value())

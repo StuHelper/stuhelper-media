@@ -9,33 +9,47 @@ import (
 func (s *Service) reusable(f File, v Version, p Principal, request UploadRequest, profile Profile) bool {
 	return f.Owner == p && !f.Disabled && !f.Deleting && !terminal(v) && v.TypeValidated && v.ObjectID != "" && (v.State == "awaiting_approval" || v.State == "approved" || v.State == "ready") && f.Purpose == request.Purpose && v.Size == request.Size && v.SHA256 == request.SHA256 && v.ContentType == request.ContentType && reflect.DeepEqual(v.Profile, profile) && (v.RetainUntil.After(s.now()) || activeReferences(v) > 0)
 }
-func (s *Service) chooseReuse(ctx context.Context, tx Transaction, p Principal, r UploadRequest, profile Profile) (Version, error) {
-	candidates, e := tx.ReuseCandidates(p, r)
-	if e != nil {
-		return Version{}, e
+
+// Probe candidates without holding the owner or file mutation lock. The winner
+// is checked again under its file lock when the new upload is committed.
+func (s *Service) chooseReuse(ctx context.Context, p Principal, key string, r UploadRequest, profile Profile) (Version, error) {
+	var candidates []Version
+	err := s.repo.Transaction(ctx, func(tx Transaction) error {
+		op := hash([]string{p.Issuer, p.Subject, "media.uploads.create", r.FileID, key})
+		_, err := tx.Replay(op, s.now())
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		candidates, err = tx.ReuseCandidates(p, r)
+		return err
+	})
+	if err != nil {
+		return Version{}, err
 	}
 	for _, v := range candidates {
-		f, current, e := s.load(tx, v.ID)
-		if e != nil {
-			return Version{}, e
+		var f File
+		err = s.repo.Transaction(ctx, func(tx Transaction) error { var err error; f, err = tx.File(v.FileID); return err })
+		if err != nil {
+			return Version{}, err
 		}
-		if !s.reusable(f, current, p, r, profile) {
+		if !s.reusable(f, v, p, r, profile) {
 			continue
 		}
-		if e = s.authorize(ctx, p, "media.files.read", access(f, current, nil)); e != nil {
-			if errors.Is(e, ErrDenied) {
-				continue
-			}
-			return Version{}, e
-		}
-		status, e := s.store.Status(ctx, s.cfg.Actor, current.ObjectID)
-		if e != nil {
-			return Version{}, storeError(e)
-		}
-		if status.State == "deleted" || status.State == "deleting" || status.Healthy < 1 {
+		if err = s.authorize(ctx, p, "media.files.read", access(f, v, nil)); errors.Is(err, ErrDenied) {
 			continue
+		} else if err != nil {
+			return Version{}, err
 		}
-		return current, nil
+		st, err := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
+		if err != nil {
+			return Version{}, storeError(err)
+		}
+		if st.State != "deleted" && st.State != "deleting" && st.Healthy > 0 {
+			return v, nil
+		}
 	}
 	return Version{}, nil
 }
@@ -102,7 +116,8 @@ func (s *Service) reuseUpload(ctx context.Context, p Principal, id string) (Vers
 		v.State = "awaiting_approval"
 		v.UploadedBytes = v.Size
 		v.ErrorCode = ""
-		return s.save(tx, p, v, "media.upload.reused")
+		s.extendPendingRetention(&v)
+		return s.save(ctx, tx, p, v, "media.upload.reused", nil)
 	})
 	if e != nil {
 		return v, e
