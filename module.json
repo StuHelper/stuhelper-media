@@ -14,7 +14,8 @@
       "integration_test.go#TestValidationExpiryAndConcurrentIdempotency",
       "integration_test.go#TestUploadIdempotencyKeyAndVerifyingReconciliation",
       "integration_test.go#TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload",
-      "document_test.go#TestDocumentTypeValidation"
+      "document_test.go#TestDocumentTypeValidation",
+      "integration_test.go#TestReplayExpiryAndReleasedHistory"
     ],
     "MEDIA-02": [
       "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle",
@@ -34,7 +35,10 @@
       "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences",
       "integration_test.go#TestOutboxPreservesWriteOrder",
       "integration_test.go#TestReferenceEventContextAndExcludedSubjects",
-      "integration_test.go#TestOutboxMigrationAndCommitNotification"
+      "integration_test.go#TestOutboxMigrationAndCommitNotification",
+      "integration_test.go#TestReviewAuditAndFileEnableEvent",
+      "integration_test.go#TestRuntimeRejectsAuditTruncate",
+      "integration_test.go#TestRuntimeRejectsSchemaOwnerMembership"
     ],
     "MEDIA-06": [
       "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent"

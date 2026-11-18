@@ -16,7 +16,7 @@ func (s *Service) chooseReuse(ctx context.Context, p Principal, key string, r Up
 	var candidates []Version
 	err := s.repo.Transaction(ctx, func(tx Transaction) error {
 		op := hash([]string{p.Issuer, p.Subject, "media.uploads.create", r.FileID, key})
-		_, err := tx.Replay(op)
+		_, err := tx.Replay(op, s.now())
 		if err == nil {
 			return nil
 		}

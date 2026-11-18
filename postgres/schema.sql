@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS media.jobs (
 );
 CREATE INDEX IF NOT EXISTS media_jobs_claim ON media.jobs(state,available_at,lease_until);
 CREATE TABLE IF NOT EXISTS media.replays (key text PRIMARY KEY, data jsonb NOT NULL);
+-- Give undated legacy responses a full replay window from migration.
+ALTER TABLE media.replays ADD COLUMN IF NOT EXISTS expires_at timestamptz NOT NULL DEFAULT (now()+interval '24 hours');
+CREATE INDEX IF NOT EXISTS media_replays_expiry ON media.replays(expires_at,key);
 CREATE TABLE IF NOT EXISTS media.outbox (id text PRIMARY KEY, data jsonb NOT NULL, delivered boolean NOT NULL DEFAULT false);
 -- Existing rows have random ids. Preserve per-subject revision order when
 -- assigning their initial delivery positions, then let PostgreSQL assign new ones.

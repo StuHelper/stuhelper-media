@@ -178,7 +178,7 @@ func (s *Service) mutation(ctx context.Context, p Principal, action, id, key str
 		if e := guard(tx); e != nil {
 			return e
 		}
-		old, e := tx.Replay(op)
+		old, e := tx.Replay(op, s.now())
 		if e == nil {
 			if old.Digest != fingerprint {
 				return ErrConflict
@@ -199,7 +199,7 @@ func (s *Service) mutation(ctx context.Context, p Principal, action, id, key str
 		if e != nil {
 			return ErrUnavailable
 		}
-		if e = tx.SaveReplay(Replay{Key: op, Digest: fingerprint, Result: b}); e != nil {
+		if e = tx.SaveReplay(Replay{CreatedAt: s.now(), Key: op, Digest: fingerprint, Result: b}); e != nil {
 			return e
 		}
 		return json.Unmarshal(b, out)
@@ -474,6 +474,24 @@ func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Ver
 	}, &out)
 	return out, e
 }
+
+// Tombstones keep their original revision. Each newly released binding gets a
+// distinct version revision and a matching event within the same transaction.
+func (s *Service) releaseBindings(ctx context.Context, tx Transaction, p Principal, v *Version) error {
+	for i := range v.References {
+		r := &v.References[i]
+		if r.State == "released" {
+			continue
+		}
+		r.State = "released"
+		r.Revision++
+		v.Revision++
+		if err := s.emit(ctx, tx, p, "media.reference.released", v.ID, v.Revision, v.Profile.SchoolID, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 func (s *Service) CancelUpload(ctx context.Context, p Principal, id, key string) (Version, error) {
 	ctx, finish, startErr := s.operation(ctx)
 	if startErr != nil {
@@ -503,9 +521,8 @@ func (s *Service) CancelUpload(ctx context.Context, p Principal, id, key string)
 		if !terminal(v) {
 			v.State = "cancelled"
 			v.ErrorCode = ""
-			for n := range v.References {
-				v.References[n].State = "released"
-				v.References[n].Revision++
+			if err := s.releaseBindings(ctx, tx, p, &v); err != nil {
+				return nil, err
 			}
 			v.Revision++
 			if e := tx.SaveVersion(v); e != nil {
@@ -594,7 +611,11 @@ func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, r
 				return nil, e
 			}
 		}
-		if e := s.emit(ctx, tx, p, action, f.ID, f.Revision, vs[0].Profile.SchoolID, nil); e != nil {
+		kind := action
+		if !disabled && !deleting {
+			kind = "media.files.enable"
+		}
+		if e := s.emit(ctx, tx, p, kind, f.ID, f.Revision, vs[0].Profile.SchoolID, nil); e != nil {
 			return nil, e
 		}
 		return FileView{f, vs}, nil
