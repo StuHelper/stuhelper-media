@@ -48,7 +48,7 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 		}
 		for _, v := range p.AllowedTypes {
 			typ, params, e := mime.ParseMediaType(v)
-			if e != nil || typ != v || len(params) != 0 {
+			if e != nil || typ != v || len(params) != 0 || !supportedType(v) {
 				return nil, ErrInput
 			}
 		}
@@ -77,23 +77,33 @@ func (s *Service) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
-func (s *Service) begin(ctx context.Context) (context.Context, func(), error) {
+func (s *Service) operation(ctx context.Context) (context.Context, func(), error) {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return nil, nil, ErrUnavailable
 	}
-	select {
-	case s.slots <- struct{}{}:
-	default:
-		s.mu.Unlock()
-		return nil, nil, ErrCapacity
-	}
 	s.active.Add(1)
 	s.mu.Unlock()
 	work, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
 	stop := context.AfterFunc(s.ctx, cancel)
-	return work, func() { stop(); cancel(); <-s.slots; s.active.Done() }, nil
+	return work, func() { stop(); cancel(); s.active.Done() }, nil
+}
+
+// OperationTimeout is the maximum duration of one media request.
+func (s *Service) OperationTimeout() time.Duration { return s.cfg.OperationTimeout }
+func (s *Service) begin(ctx context.Context) (context.Context, func(), error) {
+	work, done, err := s.operation(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	select {
+	case s.slots <- struct{}{}:
+		return work, func() { <-s.slots; done() }, nil
+	default:
+		done()
+		return nil, nil, ErrCapacity
+	}
 }
 func (s *Service) authorize(ctx context.Context, p Principal, action string, a Access) error {
 	if s.ctx.Err() != nil {
@@ -110,8 +120,28 @@ func (s *Service) authorize(ctx context.Context, p Principal, action string, a A
 	}
 	return nil
 }
+func versionProtection(v Version) Protection {
+	if v.Approved {
+		return v.Profile.Published
+	}
+	return v.Profile.Quarantine
+}
 func access(f File, v Version, r *Reference) Access {
-	return Access{FileID: f.ID, VersionID: v.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: v.Profile.Published, Reference: r}
+	return Access{FileID: f.ID, VersionID: v.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: versionProtection(v), Reference: r}
+}
+func (s *Service) authorizeFile(ctx context.Context, p Principal, action string, f File, vs []Version) error {
+	var seen []Protection
+	for _, v := range vs {
+		prot := versionProtection(v)
+		if slices.Contains(seen, prot) {
+			continue
+		}
+		seen = append(seen, prot)
+		if e := s.authorize(ctx, p, action, access(f, v, nil)); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 func (s *Service) load(tx Transaction, id string) (File, Version, error) {
 	if !idOK(id) {
@@ -191,7 +221,7 @@ func (s *Service) schedule(tx Transaction, id string, reset bool) error {
 	if j.State == "running" {
 		return nil
 	}
-	if j.State == "blocked" && !reset {
+	if !reset && (j.State == "blocked" || (j.State == "pending" && j.Attempts > 0)) {
 		return nil
 	}
 	j.VersionID = id
@@ -217,10 +247,30 @@ func validFilename(v string) bool {
 	return utf8.ValidString(v) && len(v) > 0 && len(v) <= 240 && v != "." && v != ".." && !strings.ContainsAny(v, "/\\") && strings.IndexFunc(v, unicode.IsControl) < 0
 }
 func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r UploadRequest) (Version, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Version{}, startErr
+	}
+	defer finish()
 	var out Version
 	profile, ok := s.cfg.Profiles[r.Purpose]
 	if !ok || !validFilename(r.Filename) || !slices.Contains(profile.AllowedTypes, r.ContentType) || r.Size < 1 || r.Size > profile.MaxSize || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
 		return out, ErrInput
+	}
+	var candidate Version
+	created := false
+	if r.ReuseExisting {
+		if !validKey(key) || !p.Valid() {
+			return out, ErrInput
+		}
+		if err := s.authorize(ctx, p, "media.uploads.create", Access{FileID: r.FileID, Purpose: r.Purpose, Owner: p, Protection: profile.Published}); err != nil {
+			return out, err
+		}
+		var err error
+		candidate, err = s.chooseReuse(ctx, p, key, r, profile)
+		if err != nil {
+			return out, err
+		}
 	}
 	var f File
 	e := s.mutation(ctx, p, "media.uploads.create", r.FileID, key, r, func(tx Transaction) error {
@@ -243,7 +293,7 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 				return ErrConflict
 			}
 		}
-		return s.authorize(ctx, p, "media.uploads.create", Access{FileID: r.FileID, Purpose: r.Purpose, Owner: p, Protection: profile.Published})
+		return s.authorize(ctx, p, "media.uploads.create", Access{FileID: r.FileID, Purpose: r.Purpose, Owner: p, Protection: profile.Quarantine})
 	}, func(tx Transaction) (any, error) {
 		files, open, e := tx.Counts(p)
 		if e != nil {
@@ -264,12 +314,16 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 			return nil, e
 		}
 		v := Version{Shared: true, ID: newID(), FileID: f.ID, Number: f.NextVersion, Revision: 1, UploadID: newID(), Filename: r.Filename, ContentType: r.ContentType, Size: r.Size, SHA256: r.SHA256, State: "created", ExpiresAt: s.now().Add(s.cfg.UploadTTL), RetainUntil: s.now().Add(s.cfg.UnreferencedTTL), Profile: profile, References: []Reference{}}
-		if r.ReuseExisting {
-			source, e := s.chooseReuse(ctx, tx, p, r, profile)
+		created = true
+		if candidate.ID != "" {
+			sourceFile, source, e := s.load(tx, candidate.ID)
 			if e != nil {
 				return nil, e
 			}
-			if source.ID != "" {
+			if s.reusable(sourceFile, source, p, r, profile) && source.ObjectID == candidate.ObjectID {
+				if err := s.authorize(ctx, p, "media.files.read", access(sourceFile, source, nil)); err != nil {
+					return nil, err
+				}
 				v.Reused = true
 				v.ReuseSource = source.ID
 				v.ReuseObject = source.ObjectID
@@ -292,16 +346,39 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 		return v, nil
 	}, &out)
 	if e == nil && out.Reused {
-		work, done, err := s.begin(ctx)
-		if err != nil {
+		if !created {
+			err := s.repo.Transaction(ctx, func(tx Transaction) error {
+				f, v, err := s.load(tx, out.ID)
+				if err != nil {
+					return err
+				}
+				if err = s.authorize(ctx, p, "media.uploads.create", access(f, v, nil)); err != nil {
+					return err
+				}
+				out = v
+				return nil
+			})
 			return out, err
 		}
+		work, done, err := s.begin(ctx)
+		if err != nil {
+			return out, nil
+		}
 		defer done()
-		return s.reuseUpload(work, p, out.ID)
+		v, err := s.reuseUpload(work, p, out.ID)
+		if errors.Is(err, ErrUnavailable) || errors.Is(err, ErrCapacity) {
+			return out, nil
+		}
+		return v, err
 	}
 	return out, e
 }
 func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (VersionView, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return VersionView{}, startErr
+	}
+	defer finish()
 	var v Version
 	e := s.repo.Transaction(ctx, func(tx Transaction) error {
 		f, current, e := s.load(tx, id)
@@ -311,10 +388,10 @@ func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (Versi
 		v = current
 		return s.authorize(ctx, p, "media.files.read", access(f, v, nil))
 	})
-	out := VersionView{Version: v, Desired: 3}
 	if e != nil {
-		return out, e
+		return VersionView{}, e
 	}
+	out := VersionView{Version: v, Desired: 3}
 	if v.ObjectID != "" {
 		st, e := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
 		if e == nil {
@@ -328,6 +405,11 @@ func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (Versi
 	return out, nil
 }
 func (s *Service) GetUpload(ctx context.Context, p Principal, id string) (VersionView, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return VersionView{}, startErr
+	}
+	defer finish()
 	var v Version
 	e := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; v, e = tx.Upload(id); return e })
 	if e != nil {
@@ -336,6 +418,11 @@ func (s *Service) GetUpload(ctx context.Context, p Principal, id string) (Versio
 	return s.GetVersion(ctx, p, v.ID)
 }
 func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return FileView{}, startErr
+	}
+	defer finish()
 	var out FileView
 	e := s.repo.Transaction(ctx, func(tx Transaction) error {
 		if !idOK(id) {
@@ -355,7 +442,7 @@ func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView
 		if len(vs) == 0 {
 			return ErrUnavailable
 		}
-		if e = s.authorize(ctx, p, "media.files.read", access(f, vs[0], nil)); e != nil {
+		if e = s.authorizeFile(ctx, p, "media.files.read", f, vs); e != nil {
 			return e
 		}
 		out = FileView{f, vs}
@@ -364,6 +451,11 @@ func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView
 	return out, e
 }
 func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Version, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Version{}, startErr
+	}
+	defer finish()
 	var out, v Version
 	var f File
 	e := s.mutation(ctx, p, "media.versions.approve", id, key, struct{}{}, func(tx Transaction) error {
@@ -380,6 +472,8 @@ func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Ver
 		if !v.Approved {
 			v.Approved = true
 			v.State = "approved"
+			v.UploadUntil = time.Time{}
+			v.UploadGeneration++
 			v.Revision++
 			if e := tx.SaveVersion(v); e != nil {
 				return nil, e
@@ -396,6 +490,11 @@ func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Ver
 	return out, e
 }
 func (s *Service) CancelUpload(ctx context.Context, p Principal, id, key string) (Version, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Version{}, startErr
+	}
+	defer finish()
 	var out, v Version
 	var f File
 	e := s.mutation(ctx, p, "media.uploads.cancel", id, key, struct{}{}, func(tx Transaction) error {
@@ -445,6 +544,11 @@ func (s *Service) DeleteFile(ctx context.Context, p Principal, id, key string, r
 	return s.changeFile(ctx, p, id, key, revision, true, true)
 }
 func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, revision int64, disabled, deleting bool) (FileView, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return FileView{}, startErr
+	}
+	defer finish()
 	var out FileView
 	var f File
 	var vs []Version
@@ -474,7 +578,7 @@ func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, r
 		if len(vs) == 0 {
 			return ErrUnavailable
 		}
-		return s.authorize(ctx, p, action, access(f, vs[0], nil))
+		return s.authorizeFile(ctx, p, action, f, vs)
 	}, func(tx Transaction) (any, error) {
 		if f.Revision != revision || f.Deleting {
 			return nil, ErrConflict

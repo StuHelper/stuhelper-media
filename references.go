@@ -6,6 +6,11 @@ import (
 )
 
 func (s *Service) Attach(ctx context.Context, p Principal, id, key string, b Binding) (Reference, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Reference{}, startErr
+	}
+	defer finish()
 	var out Reference
 	var v Version
 	var f File
@@ -68,6 +73,11 @@ func (s *Service) reference(tx Transaction, id string) (File, Version, Reference
 	return f, v, Reference{}, ErrNotFound
 }
 func (s *Service) GetReference(ctx context.Context, p Principal, id string) (Reference, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Reference{}, startErr
+	}
+	defer finish()
 	var out Reference
 	e := s.repo.Transaction(ctx, func(tx Transaction) error {
 		f, v, r, e := s.reference(tx, id)
@@ -80,6 +90,11 @@ func (s *Service) GetReference(ctx context.Context, p Principal, id string) (Ref
 	return out, e
 }
 func (s *Service) ReferenceVersion(ctx context.Context, p Principal, id string) (Version, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Version{}, startErr
+	}
+	defer finish()
 	var out Version
 	e := s.repo.Transaction(ctx, func(tx Transaction) error {
 		f, v, r, e := s.reference(tx, id)
@@ -98,6 +113,11 @@ func (s *Service) ReferenceVersion(ctx context.Context, p Principal, id string) 
 	return out, e
 }
 func (s *Service) Release(ctx context.Context, p Principal, id, key string) (Reference, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Reference{}, startErr
+	}
+	defer finish()
 	var out, r Reference
 	var f File
 	var v Version
@@ -130,6 +150,11 @@ func (s *Service) Release(ctx context.Context, p Principal, id, key string) (Ref
 	return out, e
 }
 func (s *Service) Publish(ctx context.Context, p Principal, id, key string) (Reference, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Reference{}, startErr
+	}
+	defer finish()
 	var intent, r Reference
 	var f File
 	var v Version
