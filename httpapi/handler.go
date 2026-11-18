@@ -221,7 +221,7 @@ func (h *handler) UploadContent(w http.ResponseWriter, r *http.Request, id strin
 
 func (h *handler) ListFiles(w http.ResponseWriter, r *http.Request, params sdk.ListFilesParams) {
 	for name, values := range r.URL.Query() {
-		if len(values) != 1 || (name != "limit" && name != "cursor") {
+		if len(values) != 1 || (name != "limit" && name != "cursor" && name != "purpose" && name != "state") {
 			h.respond(w, r, nil, media.ErrInput)
 			return
 		}
@@ -234,7 +234,7 @@ func (h *handler) ListFiles(w http.ResponseWriter, r *http.Request, params sdk.L
 	if params.Cursor != nil {
 		cursor = *params.Cursor
 	}
-	out, e := h.s.ListFiles(r.Context(), principalOf(r), limit, cursor)
+	out, e := h.s.ListFilesFiltered(r.Context(), principalOf(r), media.FileListFilter{Limit: limit, Cursor: cursor, Purpose: r.URL.Query().Get("purpose"), State: r.URL.Query().Get("state")})
 	h.respond(w, r, out, e)
 }
 

@@ -1553,6 +1553,21 @@
               "type": "string",
               "maxLength": 128
             }
+          },
+          {
+            "in": "query",
+            "name": "purpose",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "$ref": "#/components/schemas/VersionState"
+            }
           }
         ],
         "responses": {
@@ -2366,6 +2381,48 @@
           }
         }
       },
+      "VersionSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "number",
+          "filename",
+          "content_type",
+          "size",
+          "state",
+          "approved",
+          "error_code"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "type": "string"
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "error_code": {
+            "type": "string"
+          }
+        }
+      },
       "File": {
         "type": "object",
         "additionalProperties": false,
@@ -2375,7 +2432,9 @@
           "disabled",
           "deleting",
           "revision",
-          "created_at"
+          "created_at",
+          "version_count",
+          "latest_version"
         ],
         "properties": {
           "id": {
@@ -2397,6 +2456,14 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "version_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "latest_version": {
+            "$ref": "#/components/schemas/VersionSummary"
           }
         }
       },

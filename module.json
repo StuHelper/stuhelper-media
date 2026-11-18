@@ -59,7 +59,9 @@
     "MEDIA-09": [
       "archive_test.go#TestFileListOwnerCursorAndCurrentPermission",
       "archive_test.go#TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization",
-      "integration_test.go#TestMetadataReadsUseCommittedSnapshotsDuringWriteLock"
+      "integration_test.go#TestMetadataReadsUseCommittedSnapshotsDuringWriteLock",
+      "http_test.go#TestHTTPListFilesSummaryOrderAndFilters",
+      "archive_test.go#TestListCursorUsesMigratedTimestamp"
     ],
     "MEDIA-10": [
       "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission",

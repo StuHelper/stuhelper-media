@@ -349,7 +349,7 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 			return nil, withLimit(ErrFileLimit, int64(s.cfg.MaxFilesPerOwner))
 		}
 		if r.FileID == "" {
-			f = File{ID: newID(), Owner: p, Purpose: r.Purpose, Revision: 1, CreatedAt: s.now()}
+			f = File{ID: newID(), Owner: p, Purpose: r.Purpose, Revision: 1, CreatedAt: s.now().UTC().Truncate(time.Microsecond)}
 		}
 		if f.NextVersion >= s.cfg.MaxVersions {
 			return nil, withLimit(ErrVersionLimit, int64(s.cfg.MaxVersions))

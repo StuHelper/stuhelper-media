@@ -330,12 +330,14 @@ type Binding struct {
 
 // File defines model for File.
 type File struct {
-	CreatedAt time.Time `json:"created_at"`
-	Deleting  bool      `json:"deleting"`
-	Disabled  bool      `json:"disabled"`
-	Id        string    `json:"id"`
-	Purpose   string    `json:"purpose"`
-	Revision  int64     `json:"revision"`
+	CreatedAt     time.Time      `json:"created_at"`
+	Deleting      bool           `json:"deleting"`
+	Disabled      bool           `json:"disabled"`
+	Id            string         `json:"id"`
+	LatestVersion VersionSummary `json:"latest_version"`
+	Purpose       string         `json:"purpose"`
+	Revision      int64          `json:"revision"`
+	VersionCount  int64          `json:"version_count"`
 }
 
 // FilePage defines model for FilePage.
@@ -462,6 +464,18 @@ type VersionErrorCode string
 // VersionState defines model for VersionState.
 type VersionState string
 
+// VersionSummary defines model for VersionSummary.
+type VersionSummary struct {
+	Approved    bool   `json:"approved"`
+	ContentType string `json:"content_type"`
+	ErrorCode   string `json:"error_code"`
+	Filename    string `json:"filename"`
+	Id          string `json:"id"`
+	Number      int64  `json:"number"`
+	Size        int64  `json:"size"`
+	State       string `json:"state"`
+}
+
 // VersionView defines model for VersionView.
 type VersionView struct {
 	Approved bool `json:"approved"`
@@ -499,8 +513,10 @@ type SanitizedFailure = Problem
 
 // ListFilesParams defines parameters for ListFiles.
 type ListFilesParams struct {
-	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit   *int          `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor  *string       `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Purpose *string       `form:"purpose,omitempty" json:"purpose,omitempty"`
+	State   *VersionState `form:"state,omitempty" json:"state,omitempty"`
 }
 
 // DeleteFileParams defines parameters for DeleteFile.
@@ -1302,6 +1318,30 @@ func NewListFilesRequest(server string, params *ListFilesParams) (*http.Request,
 		if params.Cursor != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Purpose != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "purpose", *params.Purpose, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -7768,6 +7808,32 @@ func (siw *ServerInterfaceWrapper) ListFiles(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "purpose" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "purpose", r.URL.Query(), &params.Purpose, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "purpose"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "purpose", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
 		}
 		return
 	}

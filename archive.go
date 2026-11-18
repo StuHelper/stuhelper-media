@@ -19,50 +19,81 @@ func (s *Service) ArchiveLimits() (files int, bytes int64) {
 }
 
 func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor string) (FilePage, error) {
-	ctx, finish, startErr := s.operation(ctx)
-	if startErr != nil {
-		return FilePage{}, startErr
-	}
-	defer finish()
+	return s.ListFilesFiltered(ctx, p, FileListFilter{Limit: limit, Cursor: cursor})
+}
+
+func (s *Service) ListFilesFiltered(ctx context.Context, p Principal, filter FileListFilter) (FilePage, error) {
 	out := FilePage{Items: []File{}}
-	if limit < 1 || limit > 100 || (cursor != "" && !idOK(cursor)) {
+	if filter.Limit < 1 || filter.Limit > 100 {
+		return out, ErrInput
+	}
+	if filter.Cursor != "" {
+		if _, _, err := ParseFileCursor(filter.Cursor); err != nil {
+			return out, ErrInput
+		}
+	}
+	if filter.Purpose != "" && !idOK(filter.Purpose) {
+		return out, ErrInput
+	}
+	if filter.State != "" && !ValidVersionState(filter.State) {
 		return out, ErrInput
 	}
 	if !p.Valid() {
 		return out, ErrDenied
 	}
-	var rows []FileListing
-	err := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; rows, e = tx.Files(p, limit, cursor); return e })
+	ctx, finish, err := s.operation(ctx)
 	if err != nil {
-		return out, err
+		return FilePage{}, err
 	}
-	for _, f := range rows {
-		if f.Owner != p {
-			return out, ErrUnavailable
+	defer finish()
+	cursor := filter.Cursor
+	maxScan := min(5*filter.Limit, 500)
+	for scanned := 0; scanned < maxScan; {
+		batch := filter
+		batch.Cursor = cursor
+		batch.Limit = min(filter.Limit, maxScan-scanned)
+		var rows []FileListing
+		err := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; rows, e = tx.Files(p, batch); return e })
+		if err != nil {
+			return FilePage{}, err
 		}
-		protections := f.Protections
-		if len(protections) == 0 {
-			protections = []Protection{f.Protection}
-		}
-		denied := false
-		for _, prot := range protections {
-			err := s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: prot})
-			if errors.Is(err, ErrDenied) {
-				denied = true
-				break
+		for i, f := range rows {
+			if f.Owner != p {
+				return FilePage{}, ErrUnavailable
 			}
-			if err != nil {
-				return FilePage{}, err
+			scanned++
+			cursor = FormatFileCursor(f.CreatedAt, f.ID)
+			protections := f.Protections
+			if len(protections) == 0 {
+				protections = []Protection{f.Protection}
+			}
+			denied := false
+			for _, prot := range protections {
+				err := s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: prot})
+				if errors.Is(err, ErrDenied) {
+					denied = true
+					break
+				}
+				if err != nil {
+					return FilePage{}, err
+				}
+			}
+			if denied {
+				continue
+			}
+			out.Items = append(out.Items, f.File)
+			if len(out.Items) == filter.Limit {
+				if i+1 < len(rows) || len(rows) == batch.Limit {
+					out.NextCursor = cursor
+				}
+				return out, nil
 			}
 		}
-		if denied {
-			continue
+		if len(rows) < batch.Limit {
+			return out, nil
 		}
-		out.Items = append(out.Items, f.File)
 	}
-	if len(rows) == limit {
-		out.NextCursor = rows[len(rows)-1].ID
-	}
+	out.NextCursor = cursor
 	return out, nil
 }
 

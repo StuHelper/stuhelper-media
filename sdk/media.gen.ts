@@ -440,6 +440,18 @@ export interface components {
             /** Format: int64 */
             estimated_zip_bytes: number;
         };
+        VersionSummary: {
+            id: string;
+            /** Format: int64 */
+            number: number;
+            filename: string;
+            content_type: string;
+            /** Format: int64 */
+            size: number;
+            state: string;
+            approved: boolean;
+            error_code: string;
+        };
         File: {
             id: string;
             purpose: string;
@@ -449,6 +461,9 @@ export interface components {
             revision: number;
             /** Format: date-time */
             created_at: string;
+            /** Format: int64 */
+            version_count: number;
+            latest_version: components["schemas"]["VersionSummary"];
         };
         /** @enum {string} */
         VersionState: "created" | "uploading" | "verifying" | "awaiting_approval" | "approved" | "ready" | "cancelled" | "expired" | "rejected" | "deleting" | "deleted";
@@ -1437,6 +1452,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string;
+                purpose?: string;
+                state?: components["schemas"]["VersionState"];
             };
             header?: never;
             path?: never;

@@ -831,6 +831,43 @@ func TestHTTPDownloadConditionalRangeInlineAndCustomArchiveFilename(t *testing.T
 		t.Fatalf("expected 400 for invalid dots-only archive filename, got %d", badZip.StatusCode())
 	}
 }
+
+func TestHTTPListFilesSummaryOrderAndFilters(t *testing.T) {
+	h := newFixture(t)
+	handler, e := httpapi.New(h.s, authenticate{}, 1<<20)
+	must(t, e)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client, e := sdk.NewClientWithResponses(server.URL, sdk.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
+		r.Header.Set("Authorization", "Bearer fixture-owner")
+		return nil
+	}))
+	must(t, e)
+
+	firstUpload := h.ready(t, h.newUpload(t, "http-list-1", []byte("older ready file")))
+	h.clock.Add(10 * 1e9)
+	secondUpload := h.newUpload(t, "http-list-2", []byte("newer awaiting file"))
+
+	purpose := "documents"
+	res, e := client.ListFilesWithResponse(h.ctx, &sdk.ListFilesParams{Purpose: &purpose})
+	must(t, e)
+	if res.StatusCode() != 200 || res.JSON200 == nil || len(res.JSON200.Items) != 2 {
+		t.Fatalf("unexpected ListFiles response: %d %s", res.StatusCode(), string(res.Body))
+	}
+	if res.JSON200.Items[0].Id != secondUpload.FileID || res.JSON200.Items[0].LatestVersion.Filename != secondUpload.Filename || res.JSON200.Items[0].VersionCount != 1 {
+		t.Fatalf("newest file or latest_version summary missing: %+v", res.JSON200.Items[0])
+	}
+	if res.JSON200.Items[1].Id != firstUpload.FileID || !res.JSON200.Items[1].LatestVersion.Approved {
+		t.Fatalf("older file summary mismatch: %+v", res.JSON200.Items[1])
+	}
+
+	awaiting := sdk.VersionStateAwaitingApproval
+	filtered, e := client.ListFilesWithResponse(h.ctx, &sdk.ListFilesParams{State: &awaiting})
+	must(t, e)
+	if filtered.StatusCode() != 200 || filtered.JSON200 == nil || len(filtered.JSON200.Items) != 1 || filtered.JSON200.Items[0].Id != secondUpload.FileID {
+		t.Fatalf("unexpected filtered ListFiles response: %d %s", filtered.StatusCode(), string(filtered.Body))
+	}
+}
 func mustJSON(t *testing.T, v any) []byte { t.Helper(); b, e := json.Marshal(v); must(t, e); return b }
 func TestHTTPReuseReturnsDurableSession(t *testing.T) {
 	h := newFixture(t)
