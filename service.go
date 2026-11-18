@@ -77,23 +77,33 @@ func (s *Service) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
-func (s *Service) begin(ctx context.Context) (context.Context, func(), error) {
+func (s *Service) operation(ctx context.Context) (context.Context, func(), error) {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return nil, nil, ErrUnavailable
 	}
-	select {
-	case s.slots <- struct{}{}:
-	default:
-		s.mu.Unlock()
-		return nil, nil, ErrCapacity
-	}
 	s.active.Add(1)
 	s.mu.Unlock()
 	work, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
 	stop := context.AfterFunc(s.ctx, cancel)
-	return work, func() { stop(); cancel(); <-s.slots; s.active.Done() }, nil
+	return work, func() { stop(); cancel(); s.active.Done() }, nil
+}
+
+// OperationTimeout is the maximum duration of one media request.
+func (s *Service) OperationTimeout() time.Duration { return s.cfg.OperationTimeout }
+func (s *Service) begin(ctx context.Context) (context.Context, func(), error) {
+	work, done, err := s.operation(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	select {
+	case s.slots <- struct{}{}:
+		return work, func() { <-s.slots; done() }, nil
+	default:
+		done()
+		return nil, nil, ErrCapacity
+	}
 }
 func (s *Service) authorize(ctx context.Context, p Principal, action string, a Access) error {
 	if s.ctx.Err() != nil {
@@ -212,6 +222,11 @@ func validFilename(v string) bool {
 	return utf8.ValidString(v) && len(v) > 0 && len(v) <= 240 && v != "." && v != ".." && !strings.ContainsAny(v, "/\\") && strings.IndexFunc(v, unicode.IsControl) < 0
 }
 func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r UploadRequest) (Version, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Version{}, startErr
+	}
+	defer finish()
 	var out Version
 	profile, ok := s.cfg.Profiles[r.Purpose]
 	if !ok || !validFilename(r.Filename) || !slices.Contains(profile.AllowedTypes, r.ContentType) || r.Size < 1 || r.Size > profile.MaxSize || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
@@ -297,6 +312,11 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 	return out, e
 }
 func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (VersionView, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return VersionView{}, startErr
+	}
+	defer finish()
 	var v Version
 	e := s.repo.Transaction(ctx, func(tx Transaction) error {
 		f, current, e := s.load(tx, id)
@@ -323,6 +343,11 @@ func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (Versi
 	return out, nil
 }
 func (s *Service) GetUpload(ctx context.Context, p Principal, id string) (VersionView, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return VersionView{}, startErr
+	}
+	defer finish()
 	var v Version
 	e := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; v, e = tx.Upload(id); return e })
 	if e != nil {
@@ -331,6 +356,11 @@ func (s *Service) GetUpload(ctx context.Context, p Principal, id string) (Versio
 	return s.GetVersion(ctx, p, v.ID)
 }
 func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return FileView{}, startErr
+	}
+	defer finish()
 	var out FileView
 	e := s.repo.Transaction(ctx, func(tx Transaction) error {
 		if !idOK(id) {
@@ -359,6 +389,11 @@ func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView
 	return out, e
 }
 func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Version, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Version{}, startErr
+	}
+	defer finish()
 	var out, v Version
 	var f File
 	e := s.mutation(ctx, p, "media.versions.approve", id, key, struct{}{}, func(tx Transaction) error {
@@ -391,6 +426,11 @@ func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Ver
 	return out, e
 }
 func (s *Service) CancelUpload(ctx context.Context, p Principal, id, key string) (Version, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return Version{}, startErr
+	}
+	defer finish()
 	var out, v Version
 	var f File
 	e := s.mutation(ctx, p, "media.uploads.cancel", id, key, struct{}{}, func(tx Transaction) error {
@@ -440,6 +480,11 @@ func (s *Service) DeleteFile(ctx context.Context, p Principal, id, key string, r
 	return s.changeFile(ctx, p, id, key, revision, true, true)
 }
 func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, revision int64, disabled, deleting bool) (FileView, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return FileView{}, startErr
+	}
+	defer finish()
 	var out FileView
 	var f File
 	var vs []Version

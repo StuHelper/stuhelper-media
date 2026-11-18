@@ -10,6 +10,11 @@ import (
 
 // Sweep only schedules bounded work. Persistent job claims coordinate instances.
 func (s *Service) Sweep(ctx context.Context, n int, after string) (string, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return "", startErr
+	}
+	defer finish()
 	if n < 1 || n > 100 || (after != "" && !idOK(after)) {
 		return "", ErrInput
 	}
@@ -67,14 +72,14 @@ func (s *Service) RunOne(ctx context.Context, worker string) (bool, error) {
 	if !idOK(worker) {
 		return false, ErrInput
 	}
-	if e := s.authorize(ctx, s.cfg.Actor, "media.maintenance", Access{}); e != nil {
-		return false, e
-	}
 	ctx, done, e := s.begin(ctx)
 	if e != nil {
 		return false, e
 	}
 	defer done()
+	if e := s.authorize(ctx, s.cfg.Actor, "media.maintenance", Access{}); e != nil {
+		return false, e
+	}
 	j, e := s.repo.Claim(ctx, worker, s.now(), s.cfg.OperationTimeout+time.Second)
 	if errors.Is(e, ErrNotFound) {
 		return false, nil

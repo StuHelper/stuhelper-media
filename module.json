@@ -20,7 +20,8 @@
       "integration_test.go#TestImmutableVersionsOwnershipAndCurrentBusinessAuthorization"
     ],
     "MEDIA-04": [
-      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent"
+      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent",
+      "integration_test.go#TestMetadataOperationDrainsOnClose"
     ],
     "MEDIA-05": [
       "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"
