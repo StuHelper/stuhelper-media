@@ -3,13 +3,24 @@ package media
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	storage "github.com/StuHelper/stuhelper-storage"
 	"io"
-	"mime"
 	"net/http"
+
 	"time"
 )
+
+func streamMatches(src io.Reader, size int64, wantSHA256 string) bool {
+	h := sha256.New()
+	n, err := io.Copy(h, io.LimitReader(src, size+1))
+	if err != nil || n != size {
+		return false
+	}
+	return hex.EncodeToString(h.Sum(nil)) == wantSHA256
+}
 
 func (s *Service) ensureObject(ctx context.Context, v Version) (string, error) {
 	if v.ObjectID != "" && (!v.Reused || v.State != "verifying") {
@@ -41,6 +52,21 @@ func (s *Service) ensureObject(ctx context.Context, v Version) (string, error) {
 	}
 	return st.ID, storeError(storeErr)
 }
+
+// Keep the ingress limit error even when storage maps a reader failure to its
+// own error. Only size+1 bytes are necessary to distinguish a long request.
+type uploadReader struct {
+	io.LimitedReader
+	err error
+}
+
+func (r *uploadReader) Read(p []byte) (int, error) {
+	n, err := r.LimitedReader.Read(p)
+	if err != nil && err != io.EOF {
+		r.err = err
+	}
+	return n, err
+}
 func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src io.Reader) (Version, error) {
 	if !idOK(id) || !validKey(key) || src == nil {
 		return Version{}, ErrInput
@@ -53,7 +79,7 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 	ctx = work
 	var v Version
 	var complete bool
-	var reused bool
+	var probeStorage, retry bool
 	e = s.repo.Transaction(ctx, func(tx Transaction) error {
 		initial, e := tx.Upload(id)
 		if e != nil {
@@ -73,12 +99,14 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		if f.Disabled || f.Deleting || terminal(v) {
 			return ErrConflict
 		}
+		if v.Reused {
+			return ErrConflict
+		}
+		if v.UploadKey != "" && v.UploadKey != key {
+			return ErrConflict
+		}
 		if v.State == "awaiting_approval" || v.Approved {
 			complete = true
-			return nil
-		}
-		if v.Reused {
-			reused = true
 			return nil
 		}
 		if !v.ExpiresAt.After(s.now()) {
@@ -87,76 +115,78 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		if v.UploadUntil.After(s.now()) {
 			return ErrConflict
 		}
+		retry = v.UploadKey != ""
+		probeStorage = (v.State == "verifying" || v.State == "uploading") && v.ObjectIssued && v.TypeValidated
 		v.State = "uploading"
 		v.UploadGeneration++
+		v.UploadKey = key
 		v.UploadUntil = s.now().Add(s.cfg.OperationTimeout + time.Second)
 		v.Revision++
-		if e = tx.SaveVersion(v); e != nil {
-			return e
+		if err := tx.SaveVersion(v); err != nil {
+			return err
 		}
 		return s.schedule(tx, v.ID, true)
 	})
-	if e != nil || complete {
+	if e != nil {
 		return v, e
 	}
-	if reused {
-		return s.reuseUpload(ctx, p, v.ID)
+	if complete {
+		if !streamMatches(src, v.Size, v.SHA256) {
+			return Version{}, ErrConflict
+		}
+		return v, nil
 	}
-	prefix, e := io.ReadAll(io.LimitReader(src, 512))
-	if e == nil {
-		detected, _, parse := mime.ParseMediaType(http.DetectContentType(prefix))
-		if parse != nil || detected != v.ContentType {
-			e = ErrType
+	// Hold the same generation through observation and ingest. A status failure
+	// leaves the outcome unconfirmed and does not start a second transfer.
+	alreadyStored := false
+	if probeStorage {
+		var object string
+		object, e = s.ensureObject(ctx, v)
+		if e == nil {
+			var status storage.Status
+			status, e = s.store.Status(ctx, s.cfg.Actor, object)
+			e = storeError(e)
+			alreadyStored = e == nil && status.Healthy > 0
 		}
 	}
-	if e == nil {
-		e = s.repo.Transaction(ctx, func(tx Transaction) error {
-			f, current, err := s.load(tx, v.ID)
-			if err != nil {
-				return err
-			}
-			if terminal(current) || f.Disabled || f.Deleting || current.UploadGeneration != v.UploadGeneration {
-				return ErrConflict
-			}
-			if err = s.authorize(ctx, p, "media.uploads.write", access(f, current, nil)); err != nil {
-				return err
-			}
-			current.TypeValidated = true
-			current.ObjectIssued = true
-			v = current
-			return tx.SaveVersion(current)
-		})
-	}
-	var object string
-	if e == nil {
-		object, e = s.ensureObject(ctx, v)
-	}
-	if e == nil {
-		e = s.repo.Transaction(ctx, func(tx Transaction) error {
-			f, current, e := s.load(tx, v.ID)
-			if e != nil {
-				return e
-			}
-			if terminal(current) || f.Disabled || f.Deleting || current.UploadGeneration != v.UploadGeneration {
-				return ErrConflict
-			}
-			return s.authorize(ctx, p, "media.uploads.write", access(f, current, nil))
-		})
-	}
-	if e == nil {
-		_, err := s.store.Ingest(ctx, s.cfg.Actor, object, "media-ingest:"+v.ID, io.MultiReader(bytes.NewReader(prefix), src))
-		e = storeError(err)
+	if e == nil && alreadyStored {
+		if !streamMatches(src, v.Size, v.SHA256) {
+			e = ErrConflict
+		}
+	} else if e == nil {
+		e = s.ingestUpload(ctx, p, v, src)
+		if retry && (errors.Is(e, ErrIntegrity) || errors.Is(e, ErrType)) {
+			e = ErrConflict
+		}
 	}
 	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	var out Version
+	var fencedErr error
 	save := s.repo.Transaction(finish, func(tx Transaction) error {
-		_, current, err := s.load(tx, v.ID)
+		f, current, err := s.load(tx, v.ID)
 		if err != nil {
 			return err
 		}
 		out = current
-		if current.UploadGeneration != v.UploadGeneration || terminal(current) {
+		if current.UploadGeneration != v.UploadGeneration || terminal(current) || f.Disabled || f.Deleting || current.Approved || current.State != "uploading" || !current.UploadUntil.After(s.now()) {
+			if current.UploadGeneration == v.UploadGeneration && !current.UploadUntil.IsZero() && (terminal(current) || f.Disabled || f.Deleting) {
+				current.UploadUntil = time.Time{}
+				out = current
+				if err = tx.SaveVersion(current); err != nil {
+					return err
+				}
+			}
+			switch {
+			case current.State == "expired":
+				fencedErr = ErrExpired
+			case terminal(current) || f.Disabled || f.Deleting || current.UploadGeneration != v.UploadGeneration || current.Approved || current.State != "uploading":
+				fencedErr = ErrConflict
+			case e != nil:
+				fencedErr = e
+			default:
+				fencedErr = ErrUnavailable
+			}
 			return nil
 		}
 		current.UploadUntil = time.Time{}
@@ -179,12 +209,69 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		if err = s.schedule(tx, v.ID, true); err != nil {
 			return err
 		}
-		return s.emit(tx, p, "media.upload.checked", v.ID, current.Revision)
+		return s.emit(ctx, tx, p, "media.upload.checked", v.ID, current.Revision, v.Profile.SchoolID, nil)
 	})
 	if save != nil {
 		return out, save
 	}
+	if fencedErr != nil {
+		return out, fencedErr
+	}
 	return out, e
+}
+
+func (s *Service) ingestUpload(ctx context.Context, p Principal, v Version, src io.Reader) error {
+	input := &uploadReader{LimitedReader: io.LimitedReader{R: src, N: v.Size + 1}}
+	prefix, e := io.ReadAll(io.LimitReader(input, 3072))
+	if input.N == 0 {
+		e = ErrTooLarge
+	}
+	if e == nil && !matchesContentType(prefix, v.ContentType) {
+		e = ErrType
+	}
+	if e == nil {
+		e = s.repo.Transaction(ctx, func(tx Transaction) error {
+			f, current, err := s.load(tx, v.ID)
+			if err != nil {
+				return err
+			}
+			if terminal(current) || f.Disabled || f.Deleting || current.UploadGeneration != v.UploadGeneration || current.State != "uploading" || !current.UploadUntil.After(s.now()) {
+				return ErrConflict
+			}
+			if err = s.authorize(ctx, p, "media.uploads.write", access(f, current, nil)); err != nil {
+				return err
+			}
+			current.TypeValidated = true
+			current.ObjectIssued = true
+			v = current
+			return tx.SaveVersion(current)
+		})
+	}
+	var object string
+	if e == nil {
+		object, e = s.ensureObject(ctx, v)
+	}
+	if e == nil {
+		e = s.repo.Transaction(ctx, func(tx Transaction) error {
+			f, current, e := s.load(tx, v.ID)
+			if e != nil {
+				return e
+			}
+			if terminal(current) || f.Disabled || f.Deleting || current.UploadGeneration != v.UploadGeneration || current.State != "uploading" || !current.UploadUntil.After(s.now()) {
+				return ErrConflict
+			}
+			return s.authorize(ctx, p, "media.uploads.write", access(f, current, nil))
+		})
+	}
+	if e == nil {
+		_, err := s.store.Ingest(ctx, s.cfg.Actor, object, "media-ingest:"+v.ID, io.MultiReader(bytes.NewReader(prefix), input))
+		e = storeError(err)
+	}
+	var limit *http.MaxBytesError
+	if input.N == 0 || errors.As(input.err, &limit) {
+		e = ErrTooLarge
+	}
+	return e
 }
 
 type checkedWriter struct {
@@ -222,36 +309,15 @@ func (s *Service) download(ctx context.Context, p Principal, id string, dst io.W
 	var object string
 	var expected Protection
 	check := func() error {
-		err := s.repo.Transaction(ctx, func(tx Transaction) error {
-			initial, ref, e := tx.Reference(id)
-			if e != nil {
-				return e
-			}
-			f, v, e := s.load(tx, initial.ID)
-			if e != nil {
-				return e
-			}
-			for _, r := range v.References {
-				if r.ID == id {
-					ref = r
-				}
-			}
-			if e = s.authorize(ctx, p, "media.references.download", access(f, v, &ref)); e != nil {
-				return e
-			}
-			if f.Disabled || f.Deleting || terminal(v) || !v.Approved || ref.State != "active" || v.ObjectID == "" {
-				return ErrDenied
-			}
-			if object != "" && object != v.ObjectID {
-				return ErrConflict
-			}
-			object = v.ObjectID
-			expected = v.Profile.Published
-			return nil
-		})
+		v, err := s.ReferenceVersion(ctx, p, id)
 		if err != nil {
 			return err
 		}
+		if object != "" && object != v.ObjectID {
+			return ErrConflict
+		}
+		object = v.ObjectID
+		expected = v.Profile.Published
 		st, err := s.store.Status(ctx, s.cfg.Actor, object)
 		if err != nil {
 			return storeError(err)
@@ -285,37 +351,42 @@ func (s *Service) ReviewDownload(ctx context.Context, p Principal, id string, ds
 	defer done()
 	var object string
 	var quarantine, published Protection
+	var authAccess Access
 	var revision int64
 	check := func() error {
-		e := s.repo.Transaction(ctx, func(tx Transaction) error {
-			f, v, e := s.load(tx, id)
-			if e != nil {
-				return e
-			}
-			if e = s.authorize(ctx, p, "media.versions.review", access(f, v, nil)); e != nil {
-				return e
-			}
-			if f.Disabled || f.Deleting || terminal(v) || (v.State != "awaiting_approval" && !v.Approved) || v.ObjectID == "" {
-				return ErrDenied
-			}
-			if object != "" && object != v.ObjectID {
-				return ErrConflict
-			}
-			object = v.ObjectID
-			revision = v.Revision
-			quarantine = v.Profile.Quarantine
-			published = v.Profile.Published
-			return nil
-		})
+		var f File
+		var v Version
+		e := s.repo.Transaction(ctx, func(tx Transaction) error { var err error; f, v, err = tx.ReadVersion(id, false); return err })
 		if e != nil {
 			return e
 		}
+		authAccess = access(f, v, nil)
+		if e = s.authorize(ctx, p, "media.versions.review", authAccess); e != nil {
+			return e
+		}
+		if f.Disabled || f.Deleting || terminal(v) || (v.State != "awaiting_approval" && !v.Approved) || v.ObjectID == "" {
+			return ErrDenied
+		}
+		if object != "" && object != v.ObjectID {
+			return ErrConflict
+		}
+		object = v.ObjectID
+		revision = v.Revision
+		quarantine = v.Profile.Quarantine
+		published = v.Profile.Published
 		status, e := s.store.Status(ctx, s.cfg.Actor, object)
 		if e != nil {
 			return storeError(e)
 		}
 		if status.Protection != quarantine && status.Protection != published {
 			return ErrDenied
+		}
+		if status.Protection != authAccess.Protection {
+			actual := authAccess
+			actual.Protection = status.Protection
+			if e = s.authorize(ctx, p, "media.versions.review", actual); e != nil {
+				return e
+			}
 		}
 		return nil
 	}

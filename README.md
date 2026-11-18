@@ -31,3 +31,5 @@ bash scripts/check-with-postgres.sh
 新文件使用 storage 共享内容引用，重复实际上传不会生成另一组同范围、同保护要求的物理副本。创建上传时启用 reuse_existing，可免传输本人相同用途、内容类型和内容标识的已完成文件。复用保留独立版本、文件名、审核及引用，仍检查当前来源权限。
 
 reused 为 true 且状态为 verifying 时，只查询原会话等待恢复。复用成功后新版本进入 awaiting_approval。跨用户仅提交摘要仍需实际上传；旧版对象继续保留原身份，重复执行迁移不会重写历史绑定。
+
+审核端使用 `GET /api/v1/media/versions/{id}/review-content` 读取已校验文件。服务端在返回字节前检查当前审核权限。上传超过用途、会话或网关的大小上限时，HTTP 接口返回 413。

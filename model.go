@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	ErrTooLarge    = errors.New("media_upload_too_large")
 	ErrInput       = errors.New("media_invalid_input")
 	ErrDenied      = errors.New("media_permission_denied")
 	ErrNotFound    = errors.New("media_not_found")
@@ -53,6 +54,7 @@ type Store interface {
 	ReviewDownload(context.Context, Principal, string, io.Writer) error
 }
 type Profile struct {
+	SchoolID     string     `json:"school_id,omitempty"`
 	Module       string     `json:"module"`
 	Quarantine   Protection `json:"quarantine"`
 	Published    Protection `json:"published"`
@@ -70,6 +72,7 @@ type Config struct {
 	MaxArchiveBytes                                                                 int64
 }
 type File struct {
+	Retired     bool      `json:"-"`
 	ID          string    `json:"id"`
 	Owner       Principal `json:"-"`
 	Purpose     string    `json:"purpose"`
@@ -103,6 +106,7 @@ type Version struct {
 	ObjectID         string      `json:"-"`
 	ObjectIssued     bool        `json:"-"`
 	TypeValidated    bool        `json:"-"`
+	UploadKey        string      `json:"-"`
 	UploadGeneration int64       `json:"-"`
 	UploadUntil      time.Time   `json:"-"`
 	Profile          Profile     `json:"-"`
@@ -142,7 +146,8 @@ type FileView struct {
 }
 type FileListing struct {
 	File
-	Protection Protection
+	Protection  Protection
+	Protections []Protection
 }
 
 type FilePage struct {
@@ -179,7 +184,24 @@ type Job struct {
 	Attempts                int
 	ErrorCode               string
 }
+
+const OutboxChannel = "media_outbox"
+
+type traceParentKey struct{}
+
+var tracePattern = regexp.MustCompile("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
+
+// WithTraceParent carries the composing application's validated tracing context.
+func WithTraceParent(ctx context.Context, value string) context.Context {
+	if tracePattern.MatchString(value) && value[3:35] != "00000000000000000000000000000000" && value[36:52] != "0000000000000000" {
+		return context.WithValue(ctx, traceParentKey{}, value)
+	}
+	return ctx
+}
+
 type Event struct {
+	SchoolID        string    `json:"schoolid,omitempty"`
+	TraceParent     string    `json:"traceparent,omitempty"`
 	SpecVersion     string    `json:"specversion"`
 	Source          string    `json:"source"`
 	DataContentType string    `json:"datacontenttype"`
@@ -204,7 +226,17 @@ type Repository interface {
 	PendingEvents(context.Context, int) ([]Event, error)
 	AcknowledgeEvent(context.Context, string) error
 }
+
+// ReferenceSnapshot holds one committed read of the binding, version and file.
+type ReferenceSnapshot struct {
+	File      File
+	Version   Version
+	Reference Reference
+}
 type Transaction interface {
+	ReadVersion(id string, byUpload bool) (File, Version, error)
+	ReadFile(string) (FileView, error)
+	ReadReferences([]string) (map[string]ReferenceSnapshot, error)
 	ReuseCandidates(Principal, UploadRequest) ([]Version, error)
 	Lock(string) error
 	File(string) (File, error)

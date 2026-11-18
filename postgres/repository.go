@@ -24,6 +24,7 @@ type transaction struct {
 	ctx context.Context
 }
 type fileRecord struct {
+	Retired bool `json:"retired,omitempty"`
 	media.File
 	Owner       media.Principal `json:"owner"`
 	NextVersion int             `json:"next_version"`
@@ -36,6 +37,7 @@ type versionRecord struct {
 	ObjectID         string            `json:"object_id"`
 	ObjectIssued     bool              `json:"object_issued"`
 	TypeValidated    bool              `json:"type_validated"`
+	UploadKey        string            `json:"upload_key,omitempty"`
 	UploadGeneration int64             `json:"upload_generation"`
 	UploadUntil      time.Time         `json:"upload_until"`
 	Profile          media.Profile     `json:"profile"`
@@ -43,7 +45,7 @@ type versionRecord struct {
 }
 
 func record(v media.Version) versionRecord {
-	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
+	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadKey, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
 }
 func (r versionRecord) value() media.Version {
 	v := r.Version
@@ -53,6 +55,7 @@ func (r versionRecord) value() media.Version {
 	v.ObjectID = r.ObjectID
 	v.ObjectIssued = r.ObjectIssued
 	v.TypeValidated = r.TypeValidated
+	v.UploadKey = r.UploadKey
 	v.UploadGeneration = r.UploadGeneration
 	v.UploadUntil = r.UploadUntil
 	v.Profile = r.Profile
@@ -135,27 +138,74 @@ func owner(p media.Principal) string {
 }
 func (t *transaction) File(id string) (media.File, error) {
 	r, e := read[fileRecord](t, `SELECT data FROM media.files WHERE id=$1`, id)
-	r.File.Owner = r.Owner
-	r.File.NextVersion = r.NextVersion
-	return r.File, e
+	return r.value(), e
+}
+
+type snapshotRow struct {
+	File      fileRecord
+	Version   versionRecord
+	Reference media.Reference
+}
+
+func (r fileRecord) value() media.File {
+	f := r.File
+	f.Retired = r.Retired
+	f.Owner = r.Owner
+	f.NextVersion = r.NextVersion
+	return f
+}
+func (t *transaction) ReadVersion(id string, byUpload bool) (media.File, media.Version, error) {
+	const base = `SELECT jsonb_build_object('file',f.data,'version',v.data) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE `
+	key := "v.id=$1"
+	if byUpload {
+		key = "v.upload_id=$1"
+	}
+	r, e := read[snapshotRow](t, base+key, id)
+	return r.File.value(), r.Version.value(), e
+}
+func (t *transaction) ReadFile(id string) (media.FileView, error) {
+	r, e := read[struct {
+		File     fileRecord
+		Versions []versionRecord
+	}](t, `SELECT jsonb_build_object('file',f.data,'versions',(SELECT jsonb_agg(v.data ORDER BY number) FROM media.versions v WHERE v.file_id=f.id)) FROM media.files f WHERE f.id=$1`, id)
+	if e != nil {
+		return media.FileView{}, e
+	}
+	out := media.FileView{File: r.File.value()}
+	for _, v := range r.Versions {
+		out.Versions = append(out.Versions, v.value())
+	}
+	return out, nil
+}
+func (t *transaction) ReadReferences(ids []string) (map[string]media.ReferenceSnapshot, error) {
+	rows, e := list[snapshotRow](t, `SELECT jsonb_build_object('reference',r.data,'version',v.data,'file',f.data) FROM media.references r JOIN media.versions v ON v.id=r.version_id JOIN media.files f ON f.id=v.file_id WHERE r.id=ANY($1::text[])`, ids)
+	out := make(map[string]media.ReferenceSnapshot, len(rows))
+	for _, row := range rows {
+		out[row.Reference.ID] = media.ReferenceSnapshot{File: row.File.value(), Version: row.Version.value(), Reference: row.Reference}
+	}
+	return out, e
 }
 func (t *transaction) Files(p media.Principal, limit int, cursor string) ([]media.FileListing, error) {
 	type row struct {
 		fileRecord
-		Protection media.Protection `json:"protection"`
+		Protections []media.Protection `json:"protections"`
 	}
-	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protection',v.data->'profile'->'published') FROM media.files f JOIN LATERAL (SELECT data FROM media.versions WHERE file_id=f.id ORDER BY number LIMIT 1) v ON true WHERE owner_key=$1 AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
+	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protections',v.protections) FROM media.files f JOIN LATERAL (SELECT jsonb_agg(DISTINCT CASE WHEN COALESCE((data->>'approved')::boolean,false) THEN data->'profile'->'published' ELSE data->'profile'->'quarantine' END) AS protections FROM media.versions WHERE file_id=f.id) v ON v.protections IS NOT NULL WHERE owner_key=$1 AND NOT (f.data @> '{"retired":true}') AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
 	out := []media.FileListing{}
 	for _, r := range rows {
 		f := r.File
 		f.Owner = r.Owner
 		f.NextVersion = r.NextVersion
-		out = append(out, media.FileListing{File: f, Protection: r.Protection})
+		var first media.Protection
+		if len(r.Protections) > 0 {
+			first = r.Protections[0]
+		}
+		out = append(out, media.FileListing{File: f, Protection: first, Protections: r.Protections})
 	}
 	return out, e
 }
 func (t *transaction) SaveFile(v media.File) error {
-	return t.save(`INSERT INTO media.files(id,owner_key,data) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, fileRecord{v, v.Owner, v.NextVersion}, v.ID, owner(v.Owner))
+	return t.save(`INSERT INTO media.files(id,owner_key,data) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, fileRecord{v.Retired, v, v.Owner, v.NextVersion}, v.ID, owner(v.Owner))
 }
 func (t *transaction) Version(id string) (media.Version, error) {
 	v, e := read[versionRecord](t, `SELECT data FROM media.versions WHERE id=$1`, id)
@@ -201,7 +251,7 @@ func (t *transaction) SaveVersion(v media.Version) error {
 	return nil
 }
 func (t *transaction) Counts(p media.Principal) (files, open int, err error) {
-	err = t.tx.QueryRowContext(t.ctx, `SELECT (SELECT count(*) FROM media.files WHERE owner_key=$1),(SELECT count(*) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND v.state IN ('created','uploading','verifying'))`, owner(p)).Scan(&files, &open)
+	err = t.tx.QueryRowContext(t.ctx, `SELECT (SELECT count(*) FROM media.files WHERE owner_key=$1 AND NOT(data @> '{"retired":true}')),(SELECT count(*) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND v.state IN ('created','uploading','verifying'))`, owner(p)).Scan(&files, &open)
 	return files, open, safe(err)
 }
 func (t *transaction) Replay(k string, now time.Time) (media.Replay, error) {
@@ -227,6 +277,9 @@ func (t *transaction) Event(e media.Event) error {
 	e.Data.Revision = e.Revision
 	if err := t.save(`INSERT INTO media.outbox(id,data) VALUES($1,$2)`, e, e.ID); err != nil {
 		return err
+	}
+	if _, err := t.tx.ExecContext(t.ctx, `SELECT pg_notify($1,'')`, media.OutboxChannel); err != nil {
+		return safe(err)
 	}
 	return t.Audit(e)
 }
@@ -254,13 +307,16 @@ func (r *Repository) Claim(ctx context.Context, worker string, now time.Time, le
 	return out, e
 }
 func (r *Repository) PendingEvents(ctx context.Context, n int) ([]media.Event, error) {
-	if n < 1 || n > 100 {
+	return r.PendingOutbox(ctx, n, nil)
+}
+func (r *Repository) PendingOutbox(ctx context.Context, n int, excluded []string) ([]media.Event, error) {
+	if n < 1 || n > 100 || len(excluded) > 1000 {
 		return nil, media.ErrInput
 	}
 	var out []media.Event
 	e := r.Transaction(ctx, func(tx media.Transaction) error {
 		var e error
-		out, e = list[media.Event](tx.(*transaction), `SELECT data FROM media.outbox WHERE NOT delivered ORDER BY id LIMIT $1`, n)
+		out, e = list[media.Event](tx.(*transaction), `SELECT data FROM media.outbox WHERE NOT delivered AND NOT ((data->>'subject')=ANY(coalesce($2::text[],ARRAY[]::text[]))) ORDER BY seq LIMIT $1`, n, excluded)
 		return e
 	})
 	return out, e
