@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	media "github.com/StuHelper/stuhelper-media"
 	"github.com/StuHelper/stuhelper-media/sdk"
 	"io"
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -242,6 +244,10 @@ func (h *handler) ArchiveManifest(w http.ResponseWriter, r *http.Request) {
 		h.respond(w, r, nil, e)
 		return
 	}
+	if _, e := media.SanitizeArchiveFilename(q.Filename); e != nil {
+		h.respond(w, r, nil, e)
+		return
+	}
 	out, e := h.s.ArchiveManifest(r.Context(), principalOf(r), q.References)
 	h.respond(w, r, out, e)
 }
@@ -252,8 +258,13 @@ func (h *handler) DownloadArchive(w http.ResponseWriter, r *http.Request) {
 		h.respond(w, r, nil, e)
 		return
 	}
-	dst := &archiveWriter{ResponseWriter: w}
-	e := h.s.Archive(r.Context(), principalOf(r), q.References, dst)
+	archiveName, e := media.SanitizeArchiveFilename(q.Filename)
+	if e != nil {
+		h.respond(w, r, nil, e)
+		return
+	}
+	dst := &archiveWriter{ResponseWriter: w, filename: archiveName}
+	e = h.s.Archive(r.Context(), principalOf(r), q.References, dst)
 	if e != nil && dst.started {
 		panic(http.ErrAbortHandler)
 	}
@@ -340,21 +351,6 @@ func (h *handler) PublishReference(w http.ResponseWriter, r *http.Request, id st
 	}
 	out, e := h.s.Publish(r.Context(), principalOf(r), id, params.IdempotencyKey)
 	h.respond(w, r, out, e)
-}
-
-func (h *handler) DownloadReference(w http.ResponseWriter, r *http.Request, id string) {
-	p := principalOf(r)
-	v, e := h.s.ReferenceVersion(r.Context(), p, id)
-	if e != nil {
-		h.respond(w, r, nil, e)
-		return
-	}
-	dst := &downloadWriter{ResponseWriter: w, version: v}
-	e = h.s.Download(r.Context(), p, id, dst)
-	if e != nil && dst.started {
-		panic(http.ErrAbortHandler)
-	}
-	h.respond(w, r, nil, e)
 }
 
 func (h *handler) DownloadReviewContent(w http.ResponseWriter, r *http.Request, id string) {
@@ -483,32 +479,234 @@ func failure(w http.ResponseWriter, e error) {
 	writeJSON(w, status, out)
 }
 
+func safeInlineContentType(contentType string) bool {
+	switch contentType {
+	case "application/pdf", "image/png", "image/jpeg", "image/webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseDispositionQuery(r *http.Request) (string, error) {
+	disposition := "attachment"
+	for name, values := range r.URL.Query() {
+		if len(values) != 1 || name != "disposition" {
+			return "", media.ErrInput
+		}
+		switch values[0] {
+		case "attachment", "inline":
+			disposition = values[0]
+		default:
+			return "", media.ErrInput
+		}
+	}
+	return disposition, nil
+}
+
+func applyContentHeaders(w http.ResponseWriter, v media.Version, requestedDisposition string) {
+	disposition := "attachment"
+	if requestedDisposition == "inline" && safeInlineContentType(v.ContentType) {
+		disposition = "inline"
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	}
+	w.Header().Set("Content-Type", v.ContentType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": v.Filename}))
+	w.Header().Set("ETag", `"`+v.SHA256+`"`)
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Cache-Control", "private, no-cache")
+}
+
+func ifNoneMatch(raw, etag string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	if raw == "*" {
+		return true
+	}
+	for _, part := range strings.Split(raw, ",") {
+		candidate := strings.TrimSpace(part)
+		if strings.HasPrefix(candidate, "W/") {
+			candidate = strings.TrimSpace(strings.TrimPrefix(candidate, "W/"))
+		}
+		if candidate == etag {
+			return true
+		}
+	}
+	return false
+}
+
+func parseByteRange(raw, ifRange, etag string, total int64) (partial bool, start, end int64, unsatisfiable bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || total <= 0 {
+		return false, 0, 0, false
+	}
+	ifRange = strings.TrimSpace(ifRange)
+	if ifRange != "" && ifRange != etag {
+		return false, 0, 0, false
+	}
+	if !strings.HasPrefix(raw, "bytes=") {
+		return false, 0, 0, false
+	}
+	spec := strings.TrimSpace(strings.TrimPrefix(raw, "bytes="))
+	if strings.Contains(spec, ",") {
+		return false, 0, 0, false
+	}
+	parts := strings.Split(spec, "-")
+	if len(parts) != 2 || (parts[0] == "" && parts[1] == "") {
+		return false, 0, 0, true
+	}
+	if parts[0] == "" {
+		suffix, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || suffix <= 0 {
+			return false, 0, 0, true
+		}
+		if suffix >= total {
+			return true, 0, total - 1, false
+		}
+		return true, total - suffix, total - 1, false
+	}
+	s, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || s < 0 || s >= total {
+		return false, 0, 0, true
+	}
+	if parts[1] == "" {
+		return true, s, total - 1, false
+	}
+	e, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || e < s {
+		return false, 0, 0, true
+	}
+	if e >= total {
+		e = total - 1
+	}
+	return true, s, e, false
+}
+
 type downloadWriter struct {
 	http.ResponseWriter
-	version media.Version
-	started bool
+	version     media.Version
+	disposition string
+	partial     bool
+	rangeStart  int64
+	rangeEnd    int64
+	offset      int64
+	started     bool
 }
 
 func (w *downloadWriter) Write(b []byte) (int, error) {
 	if !w.started {
-		w.Header().Set("Content-Type", w.version.ContentType)
-		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": w.version.Filename}))
-		w.Header().Set("Content-Length", strconv.FormatInt(w.version.Size, 10))
-		w.WriteHeader(200)
+		applyContentHeaders(w.ResponseWriter, w.version, w.disposition)
+		if w.partial {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", w.rangeStart, w.rangeEnd, w.version.Size))
+			w.Header().Set("Content-Length", strconv.FormatInt(w.rangeEnd-w.rangeStart+1, 10))
+			w.WriteHeader(http.StatusPartialContent)
+		} else {
+			w.Header().Set("Content-Length", strconv.FormatInt(w.version.Size, 10))
+			w.WriteHeader(http.StatusOK)
+		}
 		w.started = true
 	}
-	return w.ResponseWriter.Write(b)
+	if !w.partial {
+		return w.ResponseWriter.Write(b)
+	}
+	chunkStart := w.offset
+	chunkEnd := w.offset + int64(len(b))
+	w.offset = chunkEnd
+	sliceStart := max(chunkStart, w.rangeStart)
+	sliceEnd := min(chunkEnd, w.rangeEnd+1)
+	if sliceStart >= sliceEnd {
+		return len(b), nil
+	}
+	if _, err := w.ResponseWriter.Write(b[sliceStart-chunkStart : sliceEnd-chunkStart]); err != nil {
+		return 0, err
+	}
+	return len(b), nil
+}
+
+func (h *handler) HeadReference(w http.ResponseWriter, r *http.Request, id string, _ sdk.HeadReferenceParams) {
+	p := principalOf(r)
+	disposition, e := parseDispositionQuery(r)
+	if e != nil {
+		h.respond(w, r, nil, e)
+		return
+	}
+	v, e := h.s.InspectReferenceDownload(r.Context(), p, id)
+	if e != nil {
+		h.respond(w, r, nil, e)
+		return
+	}
+	etag := `"` + v.SHA256 + `"`
+	if ifNoneMatch(r.Header.Get("If-None-Match"), etag) {
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Cache-Control", "private, no-cache")
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	applyContentHeaders(w, v, disposition)
+	w.Header().Set("Content-Length", strconv.FormatInt(v.Size, 10))
+	w.WriteHeader(http.StatusOK)
+	return
+}
+
+func (h *handler) DownloadReference(w http.ResponseWriter, r *http.Request, id string, _ sdk.DownloadReferenceParams) {
+	p := principalOf(r)
+	disposition, e := parseDispositionQuery(r)
+	if e != nil {
+		h.respond(w, r, nil, e)
+		return
+	}
+	v, e := h.s.InspectReferenceDownload(r.Context(), p, id)
+	if e != nil {
+		h.respond(w, r, nil, e)
+		return
+	}
+	etag := `"` + v.SHA256 + `"`
+	if ifNoneMatch(r.Header.Get("If-None-Match"), etag) {
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Cache-Control", "private, no-cache")
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	partial, start, end, unsatisfiable := parseByteRange(r.Header.Get("Range"), r.Header.Get("If-Range"), etag, v.Size)
+	if unsatisfiable {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", v.Size))
+		problem(w, http.StatusRequestedRangeNotSatisfiable, media.ErrInput.Error())
+		return
+	}
+	dst := &downloadWriter{
+		ResponseWriter: w,
+		version:        v,
+		disposition:    disposition,
+		partial:        partial,
+		rangeStart:     start,
+		rangeEnd:       end,
+	}
+	e = h.s.Download(r.Context(), p, id, dst)
+	if e != nil && dst.started {
+		panic(http.ErrAbortHandler)
+	}
+	h.respond(w, r, nil, e)
+	return
 }
 
 type archiveWriter struct {
 	http.ResponseWriter
-	started bool
+	filename string
+	started  bool
 }
 
 func (w *archiveWriter) Write(b []byte) (int, error) {
 	if !w.started {
+		name := w.filename
+		if name == "" {
+			name = "files.zip"
+		}
 		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", `attachment; filename="files.zip"`)
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 		w.WriteHeader(200)
 		w.started = true
 	}

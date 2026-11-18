@@ -1270,6 +1270,101 @@
       }
     },
     "/api/v1/media/references/{id}/content": {
+      "head": {
+        "operationId": "HeadReference",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "disposition",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "attachment",
+                "inline"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadata headers for currently authorized reference content.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Content unchanged for a currently authorized caller.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "HEAD failure; HTTP status only."
+          },
+          "401": {
+            "description": "HEAD failure; HTTP status only."
+          },
+          "403": {
+            "description": "HEAD failure; HTTP status only."
+          },
+          "404": {
+            "description": "HEAD failure; HTTP status only."
+          },
+          "409": {
+            "description": "HEAD failure; HTTP status only."
+          },
+          "410": {
+            "description": "HEAD failure; HTTP status only."
+          },
+          "413": {
+            "description": "HEAD failure; HTTP status only."
+          },
+          "422": {
+            "description": "HEAD failure; HTTP status only."
+          },
+          "503": {
+            "description": "HEAD failure; HTTP status only."
+          }
+        }
+      },
       "get": {
         "operationId": "DownloadReference",
         "parameters": [
@@ -1280,16 +1375,125 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "disposition",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "attachment",
+                "inline"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Range",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Range",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "Current state or replay result. Pending publication does not grant access.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/octet-stream": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Verified byte range for an active authorized reference.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Content unchanged for a currently authorized caller.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Unsatisfiable byte range",
+            "headers": {
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -2096,6 +2300,10 @@
               "minLength": 1,
               "maxLength": 128
             }
+          },
+          "filename": {
+            "type": "string",
+            "maxLength": 240
           }
         }
       },
@@ -2137,7 +2345,8 @@
         "additionalProperties": false,
         "required": [
           "entries",
-          "total_size"
+          "total_size",
+          "estimated_zip_bytes"
         ],
         "properties": {
           "entries": {
@@ -2149,6 +2358,11 @@
           "total_size": {
             "type": "integer",
             "format": "int64"
+          },
+          "estimated_zip_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },

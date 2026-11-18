@@ -91,6 +91,9 @@
       "http_test.go#TestHTTPResumableUploadAndProfileCatalog",
       "integration_test.go#TestRestartedUploadRevalidatesReplacementPrefix",
       "staging_test.go#TestStagingReservationAndFileLimit"
+    ],
+    "MEDIA-15": [
+      "http_test.go#TestHTTPDownloadConditionalRangeInlineAndCustomArchiveFilename"
     ]
   }
 }

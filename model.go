@@ -236,6 +236,7 @@ type FilePage struct {
 }
 type ArchiveRequest struct {
 	References []string `json:"references"`
+	Filename   string   `json:"filename,omitempty"`
 }
 type ArchiveEntry struct {
 	ReferenceID string `json:"reference_id"`
@@ -246,8 +247,9 @@ type ArchiveEntry struct {
 	SHA256      string `json:"sha256"`
 }
 type ArchiveManifest struct {
-	Entries   []ArchiveEntry `json:"entries"`
-	TotalSize int64          `json:"total_size"`
+	Entries           []ArchiveEntry `json:"entries"`
+	TotalSize         int64          `json:"total_size"`
+	EstimatedZipBytes int64          `json:"estimated_zip_bytes"`
 }
 
 type Replay struct {

@@ -263,6 +263,42 @@ func (e VersionState) Valid() bool {
 	}
 }
 
+// Defines values for DownloadReferenceParamsDisposition.
+const (
+	DownloadReferenceParamsDispositionAttachment DownloadReferenceParamsDisposition = "attachment"
+	DownloadReferenceParamsDispositionInline     DownloadReferenceParamsDisposition = "inline"
+)
+
+// Valid indicates whether the value is a known member of the DownloadReferenceParamsDisposition enum.
+func (e DownloadReferenceParamsDisposition) Valid() bool {
+	switch e {
+	case DownloadReferenceParamsDispositionAttachment:
+		return true
+	case DownloadReferenceParamsDispositionInline:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HeadReferenceParamsDisposition.
+const (
+	HeadReferenceParamsDispositionAttachment HeadReferenceParamsDisposition = "attachment"
+	HeadReferenceParamsDispositionInline     HeadReferenceParamsDisposition = "inline"
+)
+
+// Valid indicates whether the value is a known member of the HeadReferenceParamsDisposition enum.
+func (e HeadReferenceParamsDisposition) Valid() bool {
+	switch e {
+	case HeadReferenceParamsDispositionAttachment:
+		return true
+	case HeadReferenceParamsDispositionInline:
+		return true
+	default:
+		return false
+	}
+}
+
 // ArchiveEntry defines model for ArchiveEntry.
 type ArchiveEntry struct {
 	Filename    string `json:"filename"`
@@ -275,12 +311,14 @@ type ArchiveEntry struct {
 
 // ArchiveManifest defines model for ArchiveManifest.
 type ArchiveManifest struct {
-	Entries   []ArchiveEntry `json:"entries"`
-	TotalSize int64          `json:"total_size"`
+	Entries           []ArchiveEntry `json:"entries"`
+	EstimatedZipBytes int64          `json:"estimated_zip_bytes"`
+	TotalSize         int64          `json:"total_size"`
 }
 
 // ArchiveRequest defines model for ArchiveRequest.
 type ArchiveRequest struct {
+	Filename   *string  `json:"filename,omitempty"`
 	References []string `json:"references"`
 }
 
@@ -480,6 +518,26 @@ type ReleaseReferenceParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// DownloadReferenceParams defines parameters for DownloadReference.
+type DownloadReferenceParams struct {
+	Disposition *DownloadReferenceParamsDisposition `form:"disposition,omitempty" json:"disposition,omitempty"`
+	IfNoneMatch *string                             `json:"If-None-Match,omitempty"`
+	IfRange     *string                             `json:"If-Range,omitempty"`
+	Range       *string                             `json:"Range,omitempty"`
+}
+
+// DownloadReferenceParamsDisposition defines parameters for DownloadReference.
+type DownloadReferenceParamsDisposition string
+
+// HeadReferenceParams defines parameters for HeadReference.
+type HeadReferenceParams struct {
+	Disposition *HeadReferenceParamsDisposition `form:"disposition,omitempty" json:"disposition,omitempty"`
+	IfNoneMatch *string                         `json:"If-None-Match,omitempty"`
+}
+
+// HeadReferenceParamsDisposition defines parameters for HeadReference.
+type HeadReferenceParamsDisposition string
+
 // PublishReferenceParams defines parameters for PublishReference.
 type PublishReferenceParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
@@ -666,7 +724,10 @@ type ClientInterface interface {
 	GetReference(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DownloadReference performs a GET /api/v1/media/references/{id}/content (the `DownloadReference` operationId) request.
-	DownloadReference(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DownloadReference(ctx context.Context, id string, params *DownloadReferenceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// HeadReference performs a HEAD /api/v1/media/references/{id}/content (the `HeadReference` operationId) request.
+	HeadReference(ctx context.Context, id string, params *HeadReferenceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PublishReference performs a POST /api/v1/media/references/{id}/publication (the `PublishReference` operationId) request.
 	PublishReference(ctx context.Context, id string, params *PublishReferenceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -901,8 +962,21 @@ func (c *Client) GetReference(ctx context.Context, id string, reqEditors ...Requ
 }
 
 // DownloadReference performs a GET /api/v1/media/references/{id}/content (the `DownloadReference` operationId) request.
-func (c *Client) DownloadReference(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDownloadReferenceRequest(c.Server, id)
+func (c *Client) DownloadReference(ctx context.Context, id string, params *DownloadReferenceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDownloadReferenceRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// HeadReference performs a HEAD /api/v1/media/references/{id}/content (the `HeadReference` operationId) request.
+func (c *Client) HeadReference(ctx context.Context, id string, params *HeadReferenceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewHeadReferenceRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1514,7 +1588,7 @@ func NewGetReferenceRequest(server string, id string) (*http.Request, error) {
 }
 
 // NewDownloadReferenceRequest constructs an http.Request for the DownloadReference method
-func NewDownloadReferenceRequest(server string, id string) (*http.Request, error) {
+func NewDownloadReferenceRequest(server string, id string, params *DownloadReferenceParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -1539,9 +1613,149 @@ func NewDownloadReferenceRequest(server string, id string) (*http.Request, error
 		return nil, err
 	}
 
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Disposition != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "disposition", *params.Disposition, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+
+		if params.IfNoneMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-None-Match", *params.IfNoneMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-None-Match", headerParam0)
+		}
+
+		if params.IfRange != nil {
+			var headerParam1 string
+
+			headerParam1, err = runtime.StyleParamWithOptions("simple", false, "If-Range", *params.IfRange, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Range", headerParam1)
+		}
+
+		if params.Range != nil {
+			var headerParam2 string
+
+			headerParam2, err = runtime.StyleParamWithOptions("simple", false, "Range", *params.Range, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Range", headerParam2)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewHeadReferenceRequest constructs an http.Request for the HeadReference method
+func NewHeadReferenceRequest(server string, id string, params *HeadReferenceParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/media/references/%s/content", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Disposition != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "disposition", *params.Disposition, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodHead, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.IfNoneMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-None-Match", *params.IfNoneMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-None-Match", headerParam0)
+		}
+
 	}
 
 	return req, nil
@@ -2184,7 +2398,12 @@ type ClientWithResponsesInterface interface {
 	// DownloadReferenceWithResponse performs a GET /api/v1/media/references/{id}/content (the `DownloadReference` operationId) request.
 	//
 	// Returns a wrapper object for the known response body format(s).
-	DownloadReferenceWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DownloadReferenceResponse, error)
+	DownloadReferenceWithResponse(ctx context.Context, id string, params *DownloadReferenceParams, reqEditors ...RequestEditorFn) (*DownloadReferenceResponse, error)
+
+	// HeadReferenceWithResponse performs a HEAD /api/v1/media/references/{id}/content (the `HeadReference` operationId) request.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	HeadReferenceWithResponse(ctx context.Context, id string, params *HeadReferenceParams, reqEditors ...RequestEditorFn) (*HeadReferenceResponse, error)
 
 	// PublishReferenceWithResponse performs a POST /api/v1/media/references/{id}/publication (the `PublishReference` operationId) request.
 	//
@@ -3302,6 +3521,31 @@ func (r GetReferenceResponse) ContentType() string {
 	return ""
 }
 
+// DownloadReferenceResponse200Headers the declared response headers of an HTTP 200 response for DownloadReference
+type DownloadReferenceResponse200Headers struct {
+	AcceptRanges       *string
+	ContentDisposition *string
+	ETag               *string
+}
+
+// DownloadReferenceResponse206Headers the declared response headers of an HTTP 206 response for DownloadReference
+type DownloadReferenceResponse206Headers struct {
+	AcceptRanges *string
+	ContentRange *string
+	ETag         *string
+}
+
+// DownloadReferenceResponse304Headers the declared response headers of an HTTP 304 response for DownloadReference
+type DownloadReferenceResponse304Headers struct {
+	AcceptRanges *string
+	ETag         *string
+}
+
+// DownloadReferenceResponse416Headers the declared response headers of an HTTP 416 response for DownloadReference
+type DownloadReferenceResponse416Headers struct {
+	ContentRange *string
+}
+
 // DownloadReferenceResponse503Headers the declared response headers of an HTTP 503 response for DownloadReference
 type DownloadReferenceResponse503Headers struct {
 	RetryAfter *string
@@ -3324,12 +3568,22 @@ type DownloadReferenceResponse struct {
 	JSON410 *SanitizedFailure
 	// JSON413 the response for an HTTP 413 `application/json` response
 	JSON413 *SanitizedFailure
+	// JSON416 the response for an HTTP 416 `application/json` response
+	JSON416 *Problem
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
 	// JSON429 the response for an HTTP 429 `application/json` response
 	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
 	JSON503 *RetryableFailure
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *DownloadReferenceResponse200Headers
+	// Headers206 the parsed response headers for an HTTP 206 response
+	Headers206 *DownloadReferenceResponse206Headers
+	// Headers304 the parsed response headers for an HTTP 304 response
+	Headers304 *DownloadReferenceResponse304Headers
+	// Headers416 the parsed response headers for an HTTP 416 response
+	Headers416 *DownloadReferenceResponse416Headers
 	// Headers503 the parsed response headers for an HTTP 503 response
 	Headers503 *DownloadReferenceResponse503Headers
 }
@@ -3367,6 +3621,11 @@ func (r DownloadReferenceResponse) GetJSON410() *SanitizedFailure {
 // GetJSON413 returns the response for an HTTP 413 `application/json` response
 func (r DownloadReferenceResponse) GetJSON413() *SanitizedFailure {
 	return r.JSON413
+}
+
+// GetJSON416 returns the response for an HTTP 416 `application/json` response
+func (r DownloadReferenceResponse) GetJSON416() *Problem {
+	return r.JSON416
 }
 
 // GetJSON422 returns the response for an HTTP 422 `application/json` response
@@ -3407,6 +3666,57 @@ func (r DownloadReferenceResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DownloadReferenceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// HeadReferenceResponse200Headers the declared response headers of an HTTP 200 response for HeadReference
+type HeadReferenceResponse200Headers struct {
+	AcceptRanges       *string
+	ContentDisposition *string
+	ETag               *string
+}
+
+// HeadReferenceResponse304Headers the declared response headers of an HTTP 304 response for HeadReference
+type HeadReferenceResponse304Headers struct {
+	AcceptRanges *string
+	ETag         *string
+}
+
+type HeadReferenceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *HeadReferenceResponse200Headers
+	// Headers304 the parsed response headers for an HTTP 304 response
+	Headers304 *HeadReferenceResponse304Headers
+}
+
+// GetBody returns the raw response body bytes
+func (r HeadReferenceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r HeadReferenceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r HeadReferenceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r HeadReferenceResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4810,12 +5120,23 @@ func (c *ClientWithResponses) GetReferenceWithResponse(ctx context.Context, id s
 // DownloadReferenceWithResponse performs a GET /api/v1/media/references/{id}/content (the `DownloadReference` operationId) request.
 //
 // Returns a wrapper object for the known response body format(s).
-func (c *ClientWithResponses) DownloadReferenceWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DownloadReferenceResponse, error) {
-	rsp, err := c.DownloadReference(ctx, id, reqEditors...)
+func (c *ClientWithResponses) DownloadReferenceWithResponse(ctx context.Context, id string, params *DownloadReferenceParams, reqEditors ...RequestEditorFn) (*DownloadReferenceResponse, error) {
+	rsp, err := c.DownloadReference(ctx, id, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseDownloadReferenceResponse(rsp)
+}
+
+// HeadReferenceWithResponse performs a HEAD /api/v1/media/references/{id}/content (the `HeadReference` operationId) request.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) HeadReferenceWithResponse(ctx context.Context, id string, params *HeadReferenceParams, reqEditors ...RequestEditorFn) (*HeadReferenceResponse, error) {
+	rsp, err := c.HeadReference(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseHeadReferenceResponse(rsp)
 }
 
 // PublishReferenceWithResponse performs a POST /api/v1/media/references/{id}/publication (the `PublishReference` operationId) request.
@@ -5944,6 +6265,9 @@ func ParseDownloadReferenceResponse(rsp *http.Response) (*DownloadReferenceRespo
 	}
 
 	switch {
+	case rsp.StatusCode == 304:
+		break // No content-type
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -5993,6 +6317,13 @@ func ParseDownloadReferenceResponse(rsp *http.Response) (*DownloadReferenceRespo
 		}
 		response.JSON413 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 416:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON416 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
 		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -6017,6 +6348,81 @@ func ParseDownloadReferenceResponse(rsp *http.Response) (*DownloadReferenceRespo
 	}
 
 	switch {
+	case rsp.StatusCode == 200:
+		var headers DownloadReferenceResponse200Headers
+		if values := rsp.Header.Values("Accept-Ranges"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Accept-Ranges", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.AcceptRanges = &value
+		}
+		if values := rsp.Header.Values("Content-Disposition"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Content-Disposition", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ContentDisposition = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 206:
+		var headers DownloadReferenceResponse206Headers
+		if values := rsp.Header.Values("Accept-Ranges"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Accept-Ranges", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.AcceptRanges = &value
+		}
+		if values := rsp.Header.Values("Content-Range"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Content-Range", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ContentRange = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers206 = &headers
+	case rsp.StatusCode == 304:
+		var headers DownloadReferenceResponse304Headers
+		if values := rsp.Header.Values("Accept-Ranges"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Accept-Ranges", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.AcceptRanges = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers304 = &headers
+	case rsp.StatusCode == 416:
+		var headers DownloadReferenceResponse416Headers
+		if values := rsp.Header.Values("Content-Range"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Content-Range", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ContentRange = &value
+		}
+		response.Headers416 = &headers
 	case rsp.StatusCode == 503:
 		var headers DownloadReferenceResponse503Headers
 		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
@@ -6027,6 +6433,66 @@ func ParseDownloadReferenceResponse(rsp *http.Response) (*DownloadReferenceRespo
 			headers.RetryAfter = &value
 		}
 		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseHeadReferenceResponse parses an HTTP response from a HeadReferenceWithResponse call
+func ParseHeadReferenceResponse(rsp *http.Response) (*HeadReferenceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &HeadReferenceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers HeadReferenceResponse200Headers
+		if values := rsp.Header.Values("Accept-Ranges"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Accept-Ranges", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.AcceptRanges = &value
+		}
+		if values := rsp.Header.Values("Content-Disposition"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Content-Disposition", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ContentDisposition = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 304:
+		var headers HeadReferenceResponse304Headers
+		if values := rsp.Header.Values("Accept-Ranges"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Accept-Ranges", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.AcceptRanges = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers304 = &headers
 	}
 
 	return response, nil
@@ -7195,7 +7661,10 @@ type ServerInterface interface {
 	GetReference(w http.ResponseWriter, r *http.Request, id string)
 
 	// (GET /api/v1/media/references/{id}/content)
-	DownloadReference(w http.ResponseWriter, r *http.Request, id string)
+	DownloadReference(w http.ResponseWriter, r *http.Request, id string, params DownloadReferenceParams)
+
+	// (HEAD /api/v1/media/references/{id}/content)
+	HeadReference(w http.ResponseWriter, r *http.Request, id string, params HeadReferenceParams)
 
 	// (POST /api/v1/media/references/{id}/publication)
 	PublishReference(w http.ResponseWriter, r *http.Request, id string, params PublishReferenceParams)
@@ -7557,8 +8026,146 @@ func (siw *ServerInterfaceWrapper) DownloadReference(w http.ResponseWriter, r *h
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DownloadReferenceParams
+
+	// ------------- Optional query parameter "disposition" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "disposition", r.URL.Query(), &params.Disposition, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "disposition"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "disposition", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-None-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-None-Match")]; found {
+		var IfNoneMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-None-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-None-Match", valueList[0], &IfNoneMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-None-Match", Err: err})
+			return
+		}
+
+		params.IfNoneMatch = &IfNoneMatch
+
+	}
+
+	// ------------- Optional header parameter "If-Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Range")]; found {
+		var IfRange string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Range", valueList[0], &IfRange, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Range", Err: err})
+			return
+		}
+
+		params.IfRange = &IfRange
+
+	}
+
+	// ------------- Optional header parameter "Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Range")]; found {
+		var Range string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Range", valueList[0], &Range, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Range", Err: err})
+			return
+		}
+
+		params.Range = &Range
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DownloadReference(w, r, id)
+		siw.Handler.DownloadReference(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HeadReference operation middleware
+func (siw *ServerInterfaceWrapper) HeadReference(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HeadReferenceParams
+
+	// ------------- Optional query parameter "disposition" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "disposition", r.URL.Query(), &params.Disposition, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "disposition"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "disposition", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-None-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-None-Match")]; found {
+		var IfNoneMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-None-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-None-Match", valueList[0], &IfNoneMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-None-Match", Err: err})
+			return
+		}
+
+		params.IfNoneMatch = &IfNoneMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HeadReference(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8222,6 +8829,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/media/references/{id}", wrapper.ReleaseReference)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/references/{id}", wrapper.GetReference)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/references/{id}/content", wrapper.DownloadReference)
+	m.HandleFunc(http.MethodHead+" "+options.BaseURL+"/api/v1/media/references/{id}/content", wrapper.HeadReference)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/media/references/{id}/publication", wrapper.PublishReference)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/media/uploads", wrapper.CreateUpload)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/media/uploads/{id}", wrapper.CancelUpload)
