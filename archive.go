@@ -16,6 +16,11 @@ func (s *Service) ArchiveLimits() (files int, bytes int64) {
 }
 
 func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor string) (FilePage, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return FilePage{}, startErr
+	}
+	defer finish()
 	out := FilePage{Items: []File{}}
 	if limit < 1 || limit > 100 || (cursor != "" && !idOK(cursor)) {
 		return out, ErrInput
@@ -23,8 +28,6 @@ func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor 
 	if !p.Valid() {
 		return out, ErrDenied
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
-	defer cancel()
 	var rows []FileListing
 	err := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; rows, e = tx.Files(p, limit, cursor); return e })
 	if err != nil {
@@ -34,13 +37,23 @@ func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor 
 		if f.Owner != p {
 			return out, ErrUnavailable
 		}
-		// Authorization receives the persisted owner and purpose, just as file detail does.
-		e := s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: f.Protection})
-		if errors.Is(e, ErrDenied) {
-			continue
+		protections := f.Protections
+		if len(protections) == 0 {
+			protections = []Protection{f.Protection}
 		}
-		if e != nil {
-			return out, e
+		denied := false
+		for _, prot := range protections {
+			err := s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: prot})
+			if errors.Is(err, ErrDenied) {
+				denied = true
+				break
+			}
+			if err != nil {
+				return FilePage{}, err
+			}
+		}
+		if denied {
+			continue
 		}
 		out.Items = append(out.Items, f.File)
 	}
@@ -51,12 +64,15 @@ func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor 
 }
 
 func (s *Service) ArchiveManifest(ctx context.Context, p Principal, ids []string) (ArchiveManifest, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return ArchiveManifest{}, startErr
+	}
+	defer finish()
 	out := ArchiveManifest{Entries: []ArchiveEntry{}}
 	if len(ids) < 1 || len(ids) > s.cfg.MaxArchiveFiles {
 		return out, ErrInput
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
-	defer cancel()
 	seen := map[string]bool{}
 	for _, id := range ids {
 		if !idOK(id) || seen[id] {
