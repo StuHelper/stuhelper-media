@@ -34,13 +34,24 @@ func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor 
 			if f.Owner != p {
 				return ErrUnavailable
 			}
-			// Authorization receives the persisted owner and purpose, just as file detail does.
-			e = s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: f.Protection})
-			if errors.Is(e, ErrDenied) {
-				continue
+			// Authorization receives the persisted owner and every current version protection on the file.
+			protections := f.Protections
+			if len(protections) == 0 {
+				protections = []Protection{f.Protection}
 			}
-			if e != nil {
-				return e
+			denied := false
+			for _, prot := range protections {
+				e = s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: prot})
+				if errors.Is(e, ErrDenied) {
+					denied = true
+					break
+				}
+				if e != nil {
+					return e
+				}
+			}
+			if denied {
+				continue
 			}
 			out.Items = append(out.Items, f.File)
 		}
