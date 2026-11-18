@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -1394,5 +1395,219 @@ func TestVersionRejectionReasonCleanupAndPendingApprovalRetention(t *testing.T) 
 	must(t, h.db.QueryRow(`SELECT count(*) FROM media.outbox WHERE data->>'type'='media.version.rejected.v1' AND data->>'subject'=$1`, submitted.ID).Scan(&rejectedEvents))
 	if rejectedEvents != 1 {
 		t.Fatalf("expected 1 media.version.rejected.v1 event, got %d", rejectedEvents)
+	}
+}
+
+type failingReader struct {
+	data []byte
+	pos  int
+}
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.ErrUnexpectedEOF
+	}
+	n := copy(p, r.data[r.pos:])
+	r.pos += n
+	if r.pos >= len(r.data) {
+		return n, io.ErrUnexpectedEOF
+	}
+	return n, nil
+}
+
+type createProtectionPolicy struct {
+	media.Authorizer
+	allowed media.Protection
+}
+
+func (p createProtectionPolicy) Authorize(ctx context.Context, actor media.Principal, action string, a media.Access) error {
+	if action == "media.uploads.create" && a.Protection != p.allowed {
+		return media.ErrDenied
+	}
+	return p.Authorizer.Authorize(ctx, actor, action, a)
+}
+
+func TestResumableChunkUploadAndProfileCatalog(t *testing.T) {
+	h := newFixture(t)
+	t.Run("catalog and reuse check the upload classification", func(t *testing.T) {
+		profile := h.cfg.Profiles["documents"]
+		for _, allowed := range []media.Protection{profile.Published, profile.Quarantine} {
+			checker, err := media.New(h.repo, createProtectionPolicy{h.policy, allowed}, h.store, h.cfg)
+			must(t, err)
+			defer checker.Close(h.ctx)
+			catalog, err := checker.ListProfiles(h.ctx, user)
+			must(t, err)
+			q := request([]byte("quarantine purpose"))
+			q.ReuseExisting = true
+			_, err = checker.CreateUpload(h.ctx, user, "purpose-reuse", q)
+			if allowed == profile.Quarantine {
+				if len(catalog.Profiles) != 1 || err != nil {
+					t.Fatalf("upload protection rejected: purposes=%d err=%v", len(catalog.Profiles), err)
+				}
+			} else if len(catalog.Profiles) != 0 || !errors.Is(err, media.ErrDenied) {
+				t.Fatalf("public-only purpose: purposes=%d err=%v", len(catalog.Profiles), err)
+			}
+		}
+	})
+	stagingDir := t.TempDir()
+	must(t, h.s.Close(h.ctx))
+	cfg := h.cfg
+	cfg.StagingDirectory = stagingDir
+	cfg.MaxStagingBytes = 1 << 20
+	var e error
+	h.s, e = media.New(h.repo, h.policy, h.store, cfg)
+	must(t, e)
+
+	catalog, e := h.s.ListProfiles(h.ctx, user)
+	must(t, e)
+	if len(catalog.Profiles) != 1 || catalog.Profiles[0].Purpose != "documents" || catalog.Profiles[0].MaxSize != 1<<20 || catalog.UploadTTLSeconds != 900 {
+		t.Fatalf("unexpected profile catalog: %+v", catalog)
+	}
+	h.policy.deny("media.uploads.create", true)
+	deniedCatalog, e := h.s.ListProfiles(h.ctx, user)
+	must(t, e)
+	if len(deniedCatalog.Profiles) != 0 {
+		t.Fatalf("denied purpose leaked in catalog: %+v", deniedCatalog)
+	}
+	h.policy.deny("media.uploads.create", false)
+
+	payload := bytes.Repeat([]byte("chunked-lecture-notes-"), 60)
+	created, e := h.s.CreateUpload(h.ctx, user, "chunk-create", request(payload))
+	must(t, e)
+	if created.UploadedBytes != 0 {
+		t.Fatal("expected initial uploaded_bytes=0", created.UploadedBytes)
+	}
+
+	c1, e := h.s.AppendUpload(h.ctx, user, created.UploadID, "chunk-1", 0, bytes.NewReader(payload[:400]))
+	must(t, e)
+	if c1.State != "uploading" || c1.UploadedBytes != 400 {
+		t.Fatalf("unexpected first chunk state: %+v", c1)
+	}
+	replay1, e := h.s.AppendUpload(h.ctx, user, created.UploadID, "chunk-1", 0, bytes.NewReader(payload[:400]))
+	must(t, e)
+	if replay1.UploadedBytes != 400 || replay1.Revision != c1.Revision {
+		t.Fatalf("chunk replay mutated state: %+v", replay1)
+	}
+	if _, e = h.s.AppendUpload(h.ctx, user, created.UploadID, "chunk-1", 0, bytes.NewReader([]byte("tampered"))); !errors.Is(e, media.ErrConflict) {
+		t.Fatal("same chunk key accepted different payload", e)
+	}
+	if _, e = h.s.AppendUpload(h.ctx, user, created.UploadID, "chunk-wrong-offset", 0, bytes.NewReader(payload[:100])); !errors.Is(e, media.ErrConflict) {
+		t.Fatal("accepted stale offset", e)
+	}
+
+	// Simulate mid-chunk network drop: partial bytes must roll back to offset 400.
+	if _, e = h.s.AppendUpload(h.ctx, user, created.UploadID, "chunk-2-drop", 400, &failingReader{data: payload[400:550]}); !errors.Is(e, media.ErrUnavailable) {
+		t.Fatal("expected unavailable on dropped chunk stream", e)
+	}
+	inspected, e := h.s.GetUpload(h.ctx, user, created.UploadID)
+	must(t, e)
+	if inspected.UploadedBytes != 400 || inspected.State != "uploading" {
+		t.Fatalf("interrupted chunk corrupted progress: %+v", inspected)
+	}
+
+	// Restart service on the same persistent StagingDirectory and resume from 400.
+	must(t, h.s.Close(h.ctx))
+	// A stopped writer persisted a suffix before its offset transaction committed.
+	part, err := os.OpenFile(filepath.Join(stagingDir, "media-staging-v1", "upload-"+created.ID+".part"), os.O_APPEND|os.O_WRONLY, 0600)
+	must(t, err)
+	_, err = part.Write([]byte("uncommitted"))
+	must(t, err)
+	must(t, part.Close())
+
+	h.s, e = media.New(h.repo, h.policy, h.store, cfg)
+	must(t, e)
+	afterRestart, e := h.s.GetUpload(h.ctx, user, created.UploadID)
+	must(t, e)
+	if afterRestart.UploadedBytes != 400 {
+		t.Fatalf("persistent staging lost progress across restart: %+v", afterRestart)
+	}
+
+	c2, e := h.s.AppendUpload(h.ctx, user, created.UploadID, "chunk-2", 400, bytes.NewReader(payload[400:900]))
+	must(t, e)
+	if c2.UploadedBytes != 900 || c2.State != "uploading" {
+		t.Fatalf("unexpected second chunk state: %+v", c2)
+	}
+	done, e := h.s.AppendUpload(h.ctx, user, created.UploadID, "chunk-3", 900, bytes.NewReader(payload[900:]))
+	must(t, e)
+	if done.State != "awaiting_approval" || done.UploadedBytes != int64(len(payload)) {
+		t.Fatalf("final chunk did not complete verification: %+v", done)
+	}
+	ready := h.ready(t, done)
+	ref := h.bind(t, ready, "chunked-resource")
+	var downloaded bytes.Buffer
+	must(t, h.s.Download(h.ctx, user, ref.ID, &downloaded))
+	if !bytes.Equal(downloaded.Bytes(), payload) {
+		t.Fatal("downloaded bytes mismatch after resumable upload")
+	}
+
+	// MIME mismatch on first chunk (>=512 bytes) is rejected immediately.
+	badBody := bytes.Repeat([]byte("not-a-pdf-"), 60)
+	pdfReq := request(badBody)
+	pdfReq.ContentType = "application/pdf"
+	pdfUp, e := h.s.CreateUpload(h.ctx, user, "bad-pdf-chunk", pdfReq)
+	must(t, e)
+	if _, e = h.s.AppendUpload(h.ctx, user, pdfUp.UploadID, "pdf-c1", 0, bytes.NewReader(badBody[:520])); !errors.Is(e, media.ErrType) {
+		t.Fatal("expected ErrType on invalid first chunk prefix", e)
+	}
+
+	// Staging budget enforcement and release on cancel.
+	must(t, h.s.Close(h.ctx))
+	smallCfg := cfg
+	smallCfg.StagingDirectory = t.TempDir()
+	smallCfg.Profiles = map[string]media.Profile{
+		"documents": {
+			Module:       "fixture",
+			Quarantine:   cfg.Profiles["documents"].Quarantine,
+			Published:    cfg.Profiles["documents"].Published,
+			AllowedTypes: []string{"text/plain"},
+			MaxSize:      600,
+		},
+	}
+	smallCfg.MaxStagingBytes = 600
+	h.s, e = media.New(h.repo, h.policy, h.store, smallCfg)
+	must(t, e)
+
+	pA := bytes.Repeat([]byte("a"), 500)
+	pB := bytes.Repeat([]byte("b"), 500)
+	uA, e := h.s.CreateUpload(h.ctx, user, "budget-a", request(pA))
+	must(t, e)
+	uB, e := h.s.CreateUpload(h.ctx, user, "budget-b", request(pB))
+	must(t, e)
+	_, e = h.s.AppendUpload(h.ctx, user, uA.UploadID, "ba-1", 0, bytes.NewReader(pA[:400]))
+	must(t, e)
+	if _, e = h.s.AppendUpload(h.ctx, user, uB.UploadID, "bb-1", 0, bytes.NewReader(pB[:300])); !errors.Is(e, media.ErrCapacity) {
+		t.Fatal("staging budget overflow accepted", e)
+	}
+	_, e = h.s.CancelUpload(h.ctx, user, uA.UploadID, "cancel-ba")
+	must(t, e)
+	resumedB, e := h.s.AppendUpload(h.ctx, user, uB.UploadID, "bb-2", 0, bytes.NewReader(pB[:300]))
+	must(t, e)
+	if resumedB.UploadedBytes != 300 {
+		t.Fatal("cancel did not release staging budget", resumedB.UploadedBytes)
+	}
+}
+
+func TestRestartedUploadRevalidatesReplacementPrefix(t *testing.T) {
+	h := newFixture(t)
+	data := bytes.Repeat([]byte("valid text"), 100)
+	v, err := h.s.CreateUpload(h.ctx, user, "restart-mime", request(data))
+	must(t, err)
+	first, err := h.s.AppendUpload(h.ctx, user, v.UploadID, "old", 0, bytes.NewReader(data[:600]))
+	must(t, err)
+	if !first.TypeValidated {
+		t.Fatal("initial prefix was not validated")
+	}
+	must(t, h.s.Close(h.ctx))
+	h.s, err = media.New(h.repo, h.policy, h.store, h.cfg)
+	must(t, err)
+	next, err := h.s.AppendUpload(h.ctx, user, v.UploadID, "fresh", 0, bytes.NewReader(data[:4]))
+	must(t, err)
+	if next.TypeValidated || next.UploadedBytes != 4 {
+		t.Fatal("restarted prefix inherited validation", next.UploadedBytes)
+	}
+	next, err = h.s.AppendUpload(h.ctx, user, v.UploadID, "rest", 4, bytes.NewReader(data[4:]))
+	must(t, err)
+	if !next.TypeValidated || next.State != "awaiting_approval" {
+		t.Fatal(next.State)
 	}
 }

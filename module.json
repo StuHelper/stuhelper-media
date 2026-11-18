@@ -85,6 +85,12 @@
       "integration_test.go#TestVersionRejectionReasonCleanupAndPendingApprovalRetention",
       "http_test.go#TestHTTPRejectVersionIdempotencyAndValidation",
       "integration_test.go#TestRepeatedBindingsRespectHandleLifetime"
+    ],
+    "MEDIA-14": [
+      "integration_test.go#TestResumableChunkUploadAndProfileCatalog",
+      "http_test.go#TestHTTPResumableUploadAndProfileCatalog",
+      "integration_test.go#TestRestartedUploadRevalidatesReplacementPrefix",
+      "staging_test.go#TestStagingReservationAndFileLimit"
     ]
   }
 }

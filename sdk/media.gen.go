@@ -333,6 +333,22 @@ type Problem struct {
 // ProblemCode defines model for ProblemCode.
 type ProblemCode string
 
+// ProfileCatalog defines model for ProfileCatalog.
+type ProfileCatalog struct {
+	MaxArchiveBytes  int64            `json:"max_archive_bytes"`
+	MaxArchiveFiles  int64            `json:"max_archive_files"`
+	Profiles         []ProfileSummary `json:"profiles"`
+	UploadTtlSeconds int64            `json:"upload_ttl_seconds"`
+}
+
+// ProfileSummary defines model for ProfileSummary.
+type ProfileSummary struct {
+	AllowedTypes []string `json:"allowed_types"`
+	MaxSize      int64    `json:"max_size"`
+	Module       string   `json:"module"`
+	Purpose      string   `json:"purpose"`
+}
+
 // Reference defines model for Reference.
 type Reference struct {
 	FileId     string         `json:"file_id"`
@@ -399,6 +415,7 @@ type Version struct {
 	State           VersionState `json:"state"`
 	UploadExpiresAt time.Time    `json:"upload_expires_at"`
 	UploadId        string       `json:"upload_id"`
+	UploadedBytes   int64        `json:"uploaded_bytes"`
 }
 
 // VersionErrorCode defines model for VersionErrorCode.
@@ -433,6 +450,7 @@ type VersionView struct {
 	StorageState    StorageState `json:"storage_state"`
 	UploadExpiresAt time.Time    `json:"upload_expires_at"`
 	UploadId        string       `json:"upload_id"`
+	UploadedBytes   int64        `json:"uploaded_bytes"`
 }
 
 // RetryableFailure defines model for RetryableFailure.
@@ -475,6 +493,12 @@ type CreateUploadParams struct {
 // CancelUploadParams defines parameters for CancelUpload.
 type CancelUploadParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// AppendUploadContentParams defines parameters for AppendUploadContent.
+type AppendUploadContentParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+	UploadOffset   int64  `json:"Upload-Offset"`
 }
 
 // UploadContentParams defines parameters for UploadContent.
@@ -632,6 +656,9 @@ type ClientInterface interface {
 	// Takes a body of the `application/json` content type.
 	SetFileState(ctx context.Context, id string, params *SetFileStateParams, body SetFileStateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListProfiles performs a GET /api/v1/media/profiles (the `ListProfiles` operationId) request.
+	ListProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ReleaseReference performs a DELETE /api/v1/media/references/{id} (the `ReleaseReference` operationId) request.
 	ReleaseReference(ctx context.Context, id string, params *ReleaseReferenceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -657,6 +684,10 @@ type ClientInterface interface {
 
 	// GetUpload performs a GET /api/v1/media/uploads/{id} (the `GetUpload` operationId) request.
 	GetUpload(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AppendUploadContentWithBody performs a PATCH /api/v1/media/uploads/{id}/content (the `AppendUploadContent` operationId) request,
+	// with any type of body and a specified content type.
+	AppendUploadContentWithBody(ctx context.Context, id string, params *AppendUploadContentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UploadContentWithBody performs a PUT /api/v1/media/uploads/{id}/content (the `UploadContent` operationId) request,
 	// with any type of body and a specified content type.
@@ -830,6 +861,19 @@ func (c *Client) SetFileState(ctx context.Context, id string, params *SetFileSta
 	return c.Client.Do(req)
 }
 
+// ListProfiles performs a GET /api/v1/media/profiles (the `ListProfiles` operationId) request.
+func (c *Client) ListProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProfilesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ReleaseReference performs a DELETE /api/v1/media/references/{id} (the `ReleaseReference` operationId) request.
 func (c *Client) ReleaseReference(ctx context.Context, id string, params *ReleaseReferenceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReleaseReferenceRequest(c.Server, id, params)
@@ -926,6 +970,20 @@ func (c *Client) CancelUpload(ctx context.Context, id string, params *CancelUplo
 // GetUpload performs a GET /api/v1/media/uploads/{id} (the `GetUpload` operationId) request.
 func (c *Client) GetUpload(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetUploadRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AppendUploadContentWithBody performs a PATCH /api/v1/media/uploads/{id}/content (the `AppendUploadContent` operationId) request,
+// with any type of body and a specified content type.
+func (c *Client) AppendUploadContentWithBody(ctx context.Context, id string, params *AppendUploadContentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAppendUploadContentRequestWithBody(c.Server, id, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1347,6 +1405,33 @@ func NewSetFileStateRequestWithBody(server string, id string, params *SetFileSta
 	return req, nil
 }
 
+// NewListProfilesRequest constructs an http.Request for the ListProfiles method
+func NewListProfilesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/media/profiles")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewReleaseReferenceRequest constructs an http.Request for the ReleaseReference method
 func NewReleaseReferenceRequest(server string, id string, params *ReleaseReferenceParams) (*http.Request, error) {
 	var err error
@@ -1638,6 +1723,64 @@ func NewGetUploadRequest(server string, id string) (*http.Request, error) {
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAppendUploadContentRequestWithBody constructs an http.Request for the AppendUploadContent method, with any body, and a specified content type
+func NewAppendUploadContentRequestWithBody(server string, id string, params *AppendUploadContentParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/media/uploads/%s/content", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+		var headerParam1 string
+
+		headerParam1, err = runtime.StyleParamWithOptions("simple", false, "Upload-Offset", params.UploadOffset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "integer", Format: "int64"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Upload-Offset", headerParam1)
+
 	}
 
 	return req, nil
@@ -2023,6 +2166,11 @@ type ClientWithResponsesInterface interface {
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	SetFileStateWithResponse(ctx context.Context, id string, params *SetFileStateParams, body SetFileStateJSONRequestBody, reqEditors ...RequestEditorFn) (*SetFileStateResponse, error)
 
+	// ListProfilesWithResponse performs a GET /api/v1/media/profiles (the `ListProfiles` operationId) request.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ListProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfilesResponse, error)
+
 	// ReleaseReferenceWithResponse performs a DELETE /api/v1/media/references/{id} (the `ReleaseReference` operationId) request.
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -2062,6 +2210,12 @@ type ClientWithResponsesInterface interface {
 	//
 	// Returns a wrapper object for the known response body format(s).
 	GetUploadWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetUploadResponse, error)
+
+	// AppendUploadContentWithBodyWithResponse performs a PATCH /api/v1/media/uploads/{id}/content (the `AppendUploadContent` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	AppendUploadContentWithBodyWithResponse(ctx context.Context, id string, params *AppendUploadContentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendUploadContentResponse, error)
 
 	// UploadContentWithBodyWithResponse performs a PUT /api/v1/media/uploads/{id}/content (the `UploadContent` operationId) request,
 	// with any type of body and a specified content type.
@@ -2802,6 +2956,110 @@ func (r SetFileStateResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetFileStateResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListProfilesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProfileCatalog
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Problem
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Problem
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Problem
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Problem
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Problem
+	// JSON410 the response for an HTTP 410 `application/json` response
+	JSON410 *Problem
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Problem
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Problem
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListProfilesResponse) GetJSON200() *ProfileCatalog {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListProfilesResponse) GetJSON400() *Problem {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListProfilesResponse) GetJSON401() *Problem {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListProfilesResponse) GetJSON403() *Problem {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListProfilesResponse) GetJSON404() *Problem {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ListProfilesResponse) GetJSON409() *Problem {
+	return r.JSON409
+}
+
+// GetJSON410 returns the response for an HTTP 410 `application/json` response
+func (r ListProfilesResponse) GetJSON410() *Problem {
+	return r.JSON410
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r ListProfilesResponse) GetJSON413() *Problem {
+	return r.JSON413
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ListProfilesResponse) GetJSON422() *Problem {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ListProfilesResponse) GetJSON503() *Problem {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ListProfilesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProfilesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProfilesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProfilesResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3627,6 +3885,110 @@ func (r GetUploadResponse) ContentType() string {
 	return ""
 }
 
+type AppendUploadContentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Version
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Problem
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Problem
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Problem
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Problem
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Problem
+	// JSON410 the response for an HTTP 410 `application/json` response
+	JSON410 *Problem
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Problem
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Problem
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AppendUploadContentResponse) GetJSON200() *Version {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AppendUploadContentResponse) GetJSON400() *Problem {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AppendUploadContentResponse) GetJSON401() *Problem {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AppendUploadContentResponse) GetJSON403() *Problem {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r AppendUploadContentResponse) GetJSON404() *Problem {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r AppendUploadContentResponse) GetJSON409() *Problem {
+	return r.JSON409
+}
+
+// GetJSON410 returns the response for an HTTP 410 `application/json` response
+func (r AppendUploadContentResponse) GetJSON410() *Problem {
+	return r.JSON410
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r AppendUploadContentResponse) GetJSON413() *Problem {
+	return r.JSON413
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r AppendUploadContentResponse) GetJSON422() *Problem {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r AppendUploadContentResponse) GetJSON503() *Problem {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r AppendUploadContentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AppendUploadContentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AppendUploadContentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AppendUploadContentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // UploadContentResponse503Headers the declared response headers of an HTTP 503 response for UploadContent
 type UploadContentResponse503Headers struct {
 	RetryAfter *string
@@ -4412,6 +4774,17 @@ func (c *ClientWithResponses) SetFileStateWithResponse(ctx context.Context, id s
 	return ParseSetFileStateResponse(rsp)
 }
 
+// ListProfilesWithResponse performs a GET /api/v1/media/profiles (the `ListProfiles` operationId) request.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ListProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfilesResponse, error) {
+	rsp, err := c.ListProfiles(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProfilesResponse(rsp)
+}
+
 // ReleaseReferenceWithResponse performs a DELETE /api/v1/media/references/{id} (the `ReleaseReference` operationId) request.
 //
 // Returns a wrapper object for the known response body format(s).
@@ -4498,6 +4871,18 @@ func (c *ClientWithResponses) GetUploadWithResponse(ctx context.Context, id stri
 		return nil, err
 	}
 	return ParseGetUploadResponse(rsp)
+}
+
+// AppendUploadContentWithBodyWithResponse performs a PATCH /api/v1/media/uploads/{id}/content (the `AppendUploadContent` operationId) request,
+// with any type of body and a specified content type.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) AppendUploadContentWithBodyWithResponse(ctx context.Context, id string, params *AppendUploadContentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendUploadContentResponse, error) {
+	rsp, err := c.AppendUploadContentWithBody(ctx, id, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAppendUploadContentResponse(rsp)
 }
 
 // UploadContentWithBodyWithResponse performs a PUT /api/v1/media/uploads/{id}/content (the `UploadContent` operationId) request,
@@ -5233,6 +5618,95 @@ func ParseSetFileStateResponse(rsp *http.Response) (*SetFileStateResponse, error
 			headers.RetryAfter = &value
 		}
 		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListProfilesResponse parses an HTTP response from a ListProfilesWithResponse call
+func ParseListProfilesResponse(rsp *http.Response) (*ListProfilesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProfilesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProfileCatalog
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -5994,6 +6468,95 @@ func ParseGetUploadResponse(rsp *http.Response) (*GetUploadResponse, error) {
 	return response, nil
 }
 
+// ParseAppendUploadContentResponse parses an HTTP response from a AppendUploadContentWithResponse call
+func ParseAppendUploadContentResponse(rsp *http.Response) (*AppendUploadContentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AppendUploadContentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Version
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseUploadContentResponse parses an HTTP response from a UploadContentWithResponse call
 func ParseUploadContentResponse(rsp *http.Response) (*UploadContentResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6622,6 +7185,9 @@ type ServerInterface interface {
 	// (PUT /api/v1/media/files/{id}/state)
 	SetFileState(w http.ResponseWriter, r *http.Request, id string, params SetFileStateParams)
 
+	// (GET /api/v1/media/profiles)
+	ListProfiles(w http.ResponseWriter, r *http.Request)
+
 	// (DELETE /api/v1/media/references/{id})
 	ReleaseReference(w http.ResponseWriter, r *http.Request, id string, params ReleaseReferenceParams)
 
@@ -6642,6 +7208,9 @@ type ServerInterface interface {
 
 	// (GET /api/v1/media/uploads/{id})
 	GetUpload(w http.ResponseWriter, r *http.Request, id string)
+
+	// (PATCH /api/v1/media/uploads/{id}/content)
+	AppendUploadContent(w http.ResponseWriter, r *http.Request, id string, params AppendUploadContentParams)
 
 	// (PUT /api/v1/media/uploads/{id}/content)
 	UploadContent(w http.ResponseWriter, r *http.Request, id string, params UploadContentParams)
@@ -6870,6 +7439,20 @@ func (siw *ServerInterfaceWrapper) SetFileState(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetFileState(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProfiles operation middleware
+func (siw *ServerInterfaceWrapper) ListProfiles(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProfiles(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7155,6 +7738,83 @@ func (siw *ServerInterfaceWrapper) GetUpload(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetUpload(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AppendUploadContent operation middleware
+func (siw *ServerInterfaceWrapper) AppendUploadContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AppendUploadContentParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	// ------------- Required header parameter "Upload-Offset" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Upload-Offset")]; found {
+		var UploadOffset int64
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Upload-Offset", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Upload-Offset", valueList[0], &UploadOffset, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "integer", Format: "int64"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Upload-Offset", Err: err})
+			return
+		}
+
+		params.UploadOffset = UploadOffset
+
+	} else {
+		err := fmt.Errorf("Header parameter Upload-Offset is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Upload-Offset", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AppendUploadContent(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7558,6 +8218,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/media/files/{id}", wrapper.DeleteFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/files/{id}", wrapper.GetFile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/media/files/{id}/state", wrapper.SetFileState)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/profiles", wrapper.ListProfiles)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/media/references/{id}", wrapper.ReleaseReference)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/references/{id}", wrapper.GetReference)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/references/{id}/content", wrapper.DownloadReference)
@@ -7565,6 +8226,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/media/uploads", wrapper.CreateUpload)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/media/uploads/{id}", wrapper.CancelUpload)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/uploads/{id}", wrapper.GetUpload)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/media/uploads/{id}/content", wrapper.AppendUploadContent)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/media/uploads/{id}/content", wrapper.UploadContent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/versions/{id}", wrapper.GetVersion)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/media/versions/{id}/approval", wrapper.ApproveVersion)

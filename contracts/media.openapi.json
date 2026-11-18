@@ -11,6 +11,113 @@
     }
   ],
   "paths": {
+    "/api/v1/media/profiles": {
+      "get": {
+        "operationId": "ListProfiles",
+        "responses": {
+          "200": {
+            "description": "Authorized upload purposes and package limits for the current user without internal storage classifications.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileCatalog"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/media/uploads": {
       "post": {
         "operationId": "CreateUpload",
@@ -265,6 +372,152 @@
           },
           "429": {
             "$ref": "#/components/responses/SanitizedFailure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "AppendUploadContent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "in": "header",
+            "name": "Upload-Offset",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current upload progress or completed verification state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Version"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "requestBody": {
@@ -1351,6 +1604,68 @@
       }
     },
     "schemas": {
+      "ProfileSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "purpose",
+          "module",
+          "allowed_types",
+          "max_size"
+        ],
+        "properties": {
+          "purpose": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "allowed_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        }
+      },
+      "ProfileCatalog": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profiles",
+          "upload_ttl_seconds",
+          "max_archive_files",
+          "max_archive_bytes"
+        ],
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileSummary"
+            }
+          },
+          "upload_ttl_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 60
+          },
+          "max_archive_files": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "max_archive_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        }
+      },
       "Problem": {
         "type": "object",
         "additionalProperties": false,
@@ -1385,6 +1700,7 @@
           "filename",
           "content_type",
           "size",
+          "uploaded_bytes",
           "sha256",
           "state",
           "approved",
@@ -1420,6 +1736,11 @@
           "size": {
             "type": "integer",
             "format": "int64"
+          },
+          "uploaded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "sha256": {
             "type": "string"
@@ -1466,6 +1787,7 @@
           "filename",
           "content_type",
           "size",
+          "uploaded_bytes",
           "sha256",
           "state",
           "approved",
@@ -1504,6 +1826,11 @@
           "size": {
             "type": "integer",
             "format": "int64"
+          },
+          "uploaded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "sha256": {
             "type": "string"

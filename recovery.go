@@ -46,6 +46,7 @@ func (s *Service) Sweep(ctx context.Context, n int, after string) (string, error
 			activeUpload := v.State == "uploading" && v.UploadUntil.After(s.now())
 			if !terminal(v) && !activeUpload && activeReferences(v) == 0 && ((v.State == "created" || v.State == "uploading" || v.State == "verifying") && !v.ExpiresAt.After(s.now()) || !v.RetainUntil.After(s.now())) {
 				v.State = "expired"
+				v.UploadedBytes = 0
 				v.ErrorCode = ErrExpired.Error()
 				v.UploadUntil = time.Time{}
 				v.UploadGeneration++
@@ -56,6 +57,7 @@ func (s *Service) Sweep(ctx context.Context, n int, after string) (string, error
 				changed = true
 			}
 			if changed {
+				s.staging.remove(v.ID)
 				if e = tx.SaveVersion(v); e != nil {
 					return e
 				}
@@ -270,11 +272,13 @@ func (s *Service) updateObserved(ctx context.Context, observed Version, state st
 			return nil
 		}
 		v.State = state
+		v.UploadedBytes = v.Size
 		v.ErrorCode = ""
 		v.UploadUntil = time.Time{}
 		v.UploadGeneration++
 		s.extendPendingRetention(&v)
 		v.Revision++
+		s.staging.remove(v.ID)
 		if e = tx.SaveVersion(v); e != nil {
 			return e
 		}
@@ -294,10 +298,12 @@ func (s *Service) cleanupDone(ctx context.Context, id string) error {
 			return nil
 		}
 		v.CleanupComplete = true
+		v.UploadedBytes = 0
 		if v.State == "deleting" {
 			v.State = "deleted"
 		}
 		v.Revision++
+		s.staging.remove(v.ID)
 		if e = tx.SaveVersion(v); e != nil {
 			return e
 		}

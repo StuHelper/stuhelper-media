@@ -52,7 +52,7 @@ type authMux struct {
 }
 
 func (m *authMux) HandleFunc(pattern string, next func(http.ResponseWriter, *http.Request)) {
-	upload := pattern == http.MethodPut+" /api/v1/media/uploads/{id}/content"
+	upload := pattern == "PUT /api/v1/media/uploads/{id}/content" || pattern == "PATCH /api/v1/media/uploads/{id}/content"
 	m.ServeMux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -176,6 +176,23 @@ func (h *handler) CreateUpload(w http.ResponseWriter, r *http.Request, params sd
 	h.respond(w, r, out, e)
 }
 
+func (h *handler) ListProfiles(w http.ResponseWriter, r *http.Request) {
+	if len(r.URL.Query()) != 0 {
+		h.respond(w, r, nil, media.ErrInput)
+		return
+	}
+	out, e := h.s.ListProfiles(r.Context(), principalOf(r))
+	h.respond(w, r, out, e)
+}
+func (h *handler) AppendUploadContent(w http.ResponseWriter, r *http.Request, id string, params sdk.AppendUploadContentParams) {
+	typ, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || typ != "application/octet-stream" || len(r.Header.Values("Upload-Offset")) != 1 || params.UploadOffset < 0 {
+		h.respond(w, r, nil, media.ErrInput)
+		return
+	}
+	out, e := h.s.AppendUpload(r.Context(), principalOf(r), id, params.IdempotencyKey, params.UploadOffset, r.Body)
+	h.respond(w, r, out, e)
+}
 func (h *handler) GetUpload(w http.ResponseWriter, r *http.Request, id string) {
 	out, e := h.s.GetUpload(r.Context(), principalOf(r), id)
 	h.respond(w, r, out, e)
