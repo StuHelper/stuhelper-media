@@ -120,14 +120,16 @@ func (s *Service) RunOne(ctx context.Context, worker string) (bool, error) {
 			now.Attempts++
 			now.ErrorCode = errorCode(e)
 			now.State = "pending"
-			now.AvailableAt = s.now().Add(time.Duration(min(now.Attempts, 30)) * time.Second)
+			now.AvailableAt = s.now().Add(min(5*time.Second<<min(now.Attempts-1, 6), 5*time.Minute))
 			if now.Attempts >= s.cfg.MaxAttempts || errors.Is(e, ErrDenied) {
 				now.State = "blocked"
-				if !terminal(current) {
-					current.ErrorCode = now.ErrorCode
-					if err = tx.SaveVersion(current); err != nil {
-						return err
-					}
+				current.ErrorCode = now.ErrorCode
+				current.Revision++
+				if err = tx.SaveVersion(current); err != nil {
+					return err
+				}
+				if err = s.emit(tx, s.cfg.Actor, "media.job.blocked", current.ID, current.Revision); err != nil {
+					return err
 				}
 			}
 		} else {

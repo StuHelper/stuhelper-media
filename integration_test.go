@@ -738,3 +738,46 @@ func TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload(t *testi
 	}
 	t.Fatalf("cleanup did not finish before the old lease deadline: %s %v %s", st.State, st.CleanupComplete, st.StorageState)
 }
+
+type unavailableStatus struct{ media.Store }
+
+func (s unavailableStatus) Status(context.Context, media.Principal, string) (storage.Status, error) {
+	return storage.Status{}, storage.ErrUnavailable
+}
+func TestCleanupBackoffAndBlockedEvidence(t *testing.T) {
+	h := newFixture(t)
+	v := h.newUpload(t, "cleanup", []byte("cleanup"))
+	_, e := h.s.CancelUpload(h.ctx, user, v.UploadID, "cancel")
+	must(t, e)
+	must(t, h.s.Close(h.ctx))
+	h.s, e = media.New(h.repo, h.policy, unavailableStatus{h.store}, h.cfg)
+	must(t, e)
+	for i := 0; i < h.cfg.MaxAttempts; i++ {
+		ran, e := h.s.RunOne(h.ctx, "worker")
+		if !ran || !errors.Is(e, media.ErrUnavailable) {
+			t.Fatal(ran, e)
+		}
+		_, e = h.s.Sweep(h.ctx, 100, "")
+		must(t, e)
+		if i+1 < h.cfg.MaxAttempts {
+			delay := 5 * time.Second << i
+			h.clock.Add(delay - time.Second)
+			ran, e = h.s.RunOne(h.ctx, "worker")
+			must(t, e)
+			if ran {
+				t.Fatal("retry before backoff elapsed", i)
+			}
+			h.clock.Add(time.Second)
+		}
+	}
+	st, e := h.s.GetVersion(h.ctx, user, v.ID)
+	must(t, e)
+	if st.ErrorCode != media.ErrUnavailable.Error() || st.CleanupComplete || st.State != "cancelled" {
+		t.Fatal(st.State, st.ErrorCode)
+	}
+	var count int
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.outbox WHERE data->>'type'='media.job.blocked.v1'").Scan(&count))
+	if count != 1 {
+		t.Fatal(count)
+	}
+}
