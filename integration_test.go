@@ -721,24 +721,20 @@ func TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload(t *testi
 	if _, e = s.Upload(h.ctx, user, v2.UploadID, "a09-stream-2", bytes.NewReader(data2)); !errors.Is(e, media.ErrConflict) {
 		t.Fatalf("concurrently cancelled upload returned %v instead of ErrConflict", e)
 	}
-	ran, e := s.RunOne(h.ctx, "fixture-worker")
+	st, e := s.GetVersion(h.ctx, user, v2.ID)
 	must(t, e)
-	if !ran {
-		t.Fatal("expected cleanup worker to run")
+	if st.State != "cancelled" || !st.UploadUntil.IsZero() {
+		t.Fatalf("lease retained after writer returned: %s %s", st.State, st.UploadUntil)
 	}
-	_, e = h.store.Reconcile(h.ctx, system, 100, "")
-	must(t, e)
-	for n := 0; n < 8; n++ {
-		more, err := h.store.RunOne(h.ctx, "storage-worker")
-		must(t, err)
-		if !more {
-			break
+	// Media releases the handle, storage removes bytes, then media observes the
+	// deletion. Other pending jobs may be claimed first in any of these polls.
+	for i := 0; i < 4; i++ {
+		h.cycle(t)
+		st, e = s.GetVersion(h.ctx, user, v2.ID)
+		must(t, e)
+		if st.State == "cancelled" && st.CleanupComplete && st.StorageState == "deleted" {
+			return
 		}
 	}
-	h.cycle(t) // Observe physical deletion on the next scheduled poll.
-	st2, e := s.GetVersion(h.ctx, user, v2.ID)
-	must(t, e)
-	if st2.State != "cancelled" || !st2.CleanupComplete {
-		t.Fatalf("cancelled upload did not clear lease for immediate cleanup: %+v", st2)
-	}
+	t.Fatalf("cleanup did not finish before the old lease deadline: %s %v %s", st.State, st.CleanupComplete, st.StorageState)
 }
