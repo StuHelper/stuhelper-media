@@ -66,6 +66,8 @@ Outbox 按持久序号读取。事务提交时通过 media_outbox 唤醒 relay�
 
 审核员可通过 GET /api/v1/media/versions/{id}/review-content 下载已校验字节，首次输出前重新授权。请求超过用途、会话或网关大小上限时返回 HTTP 413。创建上传省略 reuse_existing 时按 false 处理。
 
+只读接口用 PostgreSQL 单语句快照读取文件、版本或引用，在事务外执行授权。每次生成清单只批量查询一次，并按请求顺序返回。打包仍逐项核对首字节权限，结束前重新批量核对清单。
+
 ## 验收场景
 
 测试使用真实 PostgreSQL、隔离角色和可控供应商，真实账号、生产身份接入与部署分别验收。

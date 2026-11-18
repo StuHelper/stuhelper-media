@@ -43,11 +43,13 @@
       "integration_test.go#TestLostCreateAfterReplayWindowExpiresCleansOriginalObject"
     ],
     "MEDIA-08": [
-      "archive_test.go#TestArchiveManifestCurrentRightsAndSingleTransferSlot"
+      "archive_test.go#TestArchiveManifestCurrentRightsAndSingleTransferSlot",
+      "integration_test.go#TestManifestUsesOneSnapshot"
     ],
     "MEDIA-09": [
       "archive_test.go#TestFileListOwnerCursorAndCurrentPermission",
-      "archive_test.go#TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization"
+      "archive_test.go#TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization",
+      "integration_test.go#TestMetadataReadsUseCommittedSnapshotsDuringWriteLock"
     ],
     "MEDIA-10": [
       "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission",

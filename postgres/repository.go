@@ -138,10 +138,52 @@ func owner(p media.Principal) string {
 }
 func (t *transaction) File(id string) (media.File, error) {
 	r, e := read[fileRecord](t, `SELECT data FROM media.files WHERE id=$1`, id)
-	r.File.Retired = r.Retired
-	r.File.Owner = r.Owner
-	r.File.NextVersion = r.NextVersion
-	return r.File, e
+	return r.value(), e
+}
+
+type snapshotRow struct {
+	File      fileRecord
+	Version   versionRecord
+	Reference media.Reference
+}
+
+func (r fileRecord) value() media.File {
+	f := r.File
+	f.Retired = r.Retired
+	f.Owner = r.Owner
+	f.NextVersion = r.NextVersion
+	return f
+}
+func (t *transaction) ReadVersion(id string, byUpload bool) (media.File, media.Version, error) {
+	const base = `SELECT jsonb_build_object('file',f.data,'version',v.data) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE `
+	key := "v.id=$1"
+	if byUpload {
+		key = "v.upload_id=$1"
+	}
+	r, e := read[snapshotRow](t, base+key, id)
+	return r.File.value(), r.Version.value(), e
+}
+func (t *transaction) ReadFile(id string) (media.FileView, error) {
+	r, e := read[struct {
+		File     fileRecord
+		Versions []versionRecord
+	}](t, `SELECT jsonb_build_object('file',f.data,'versions',(SELECT jsonb_agg(v.data ORDER BY number) FROM media.versions v WHERE v.file_id=f.id)) FROM media.files f WHERE f.id=$1`, id)
+	if e != nil {
+		return media.FileView{}, e
+	}
+	out := media.FileView{File: r.File.value()}
+	for _, v := range r.Versions {
+		out.Versions = append(out.Versions, v.value())
+	}
+	return out, nil
+}
+func (t *transaction) ReadReferences(ids []string) (map[string]media.ReferenceSnapshot, error) {
+	rows, e := list[snapshotRow](t, `SELECT jsonb_build_object('reference',r.data,'version',v.data,'file',f.data) FROM media.references r JOIN media.versions v ON v.id=r.version_id JOIN media.files f ON f.id=v.file_id WHERE r.id=ANY($1::text[])`, ids)
+	out := make(map[string]media.ReferenceSnapshot, len(rows))
+	for _, row := range rows {
+		out[row.Reference.ID] = media.ReferenceSnapshot{File: row.File.value(), Version: row.Version.value(), Reference: row.Reference}
+	}
+	return out, e
 }
 func (t *transaction) Files(p media.Principal, limit int, cursor string) ([]media.FileListing, error) {
 	type row struct {

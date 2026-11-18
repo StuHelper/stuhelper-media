@@ -377,21 +377,24 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 	return out, e
 }
 func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (VersionView, error) {
+	return s.readVersion(ctx, p, id, false)
+}
+func (s *Service) readVersion(ctx context.Context, p Principal, id string, byUpload bool) (VersionView, error) {
+	if !idOK(id) {
+		return VersionView{}, ErrInput
+	}
 	ctx, finish, startErr := s.operation(ctx)
 	if startErr != nil {
 		return VersionView{}, startErr
 	}
 	defer finish()
+	var f File
 	var v Version
-	e := s.repo.Transaction(ctx, func(tx Transaction) error {
-		f, current, e := s.load(tx, id)
-		if e != nil {
-			return e
-		}
-		v = current
-		return s.authorize(ctx, p, "media.files.read", access(f, v, nil))
-	})
+	e := s.repo.Transaction(ctx, func(tx Transaction) error { var err error; f, v, err = tx.ReadVersion(id, byUpload); return err })
 	if e != nil {
+		return VersionView{}, e
+	}
+	if e = s.authorize(ctx, p, "media.files.read", access(f, v, nil)); e != nil {
 		return VersionView{}, e
 	}
 	out := VersionView{Version: v, Desired: 3}
@@ -408,17 +411,7 @@ func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (Versi
 	return out, nil
 }
 func (s *Service) GetUpload(ctx context.Context, p Principal, id string) (VersionView, error) {
-	ctx, finish, startErr := s.operation(ctx)
-	if startErr != nil {
-		return VersionView{}, startErr
-	}
-	defer finish()
-	var v Version
-	e := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; v, e = tx.Upload(id); return e })
-	if e != nil {
-		return VersionView{}, e
-	}
-	return s.GetVersion(ctx, p, v.ID)
+	return s.readVersion(ctx, p, id, true)
 }
 func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView, error) {
 	ctx, finish, startErr := s.operation(ctx)
@@ -426,32 +419,21 @@ func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView
 		return FileView{}, startErr
 	}
 	defer finish()
+	if !idOK(id) {
+		return FileView{}, ErrInput
+	}
 	var out FileView
-	e := s.repo.Transaction(ctx, func(tx Transaction) error {
-		if !idOK(id) {
-			return ErrInput
-		}
-		if e := tx.Lock("file:" + id); e != nil {
-			return e
-		}
-		f, e := tx.File(id)
-		if e != nil {
-			return e
-		}
-		vs, e := tx.Versions(id)
-		if e != nil {
-			return e
-		}
-		if len(vs) == 0 {
-			return ErrUnavailable
-		}
-		if e = s.authorizeFile(ctx, p, "media.files.read", f, vs); e != nil {
-			return e
-		}
-		out = FileView{f, vs}
-		return nil
-	})
-	return out, e
+	err := s.repo.Transaction(ctx, func(tx Transaction) error { var err error; out, err = tx.ReadFile(id); return err })
+	if err != nil {
+		return FileView{}, err
+	}
+	if len(out.Versions) == 0 {
+		return FileView{}, ErrUnavailable
+	}
+	if err = s.authorizeFile(ctx, p, "media.files.read", out.File, out.Versions); err != nil {
+		return FileView{}, err
+	}
+	return out, nil
 }
 func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Version, error) {
 	ctx, finish, startErr := s.operation(ctx)

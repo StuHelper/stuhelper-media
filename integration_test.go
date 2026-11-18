@@ -1000,3 +1000,55 @@ func TestDeletedFileRetiresAfterAllVersionsClean(t *testing.T) {
 		t.Fatal(f.File)
 	}
 }
+
+type countedRepo struct {
+	media.Repository
+	txs int
+}
+
+func (r *countedRepo) Transaction(ctx context.Context, fn func(media.Transaction) error) error {
+	r.txs++
+	return r.Repository.Transaction(ctx, fn)
+}
+func TestManifestUsesOneSnapshot(t *testing.T) {
+	h := newFixture(t)
+	v := h.ready(t, h.newUpload(t, "lecture", []byte("lecture")))
+	ids := []string{h.bind(t, v, "a").ID, h.bind(t, v, "b").ID}
+	r := &countedRepo{Repository: h.repo}
+	s, e := media.New(r, h.policy, h.store, h.cfg)
+	must(t, e)
+	defer s.Close(h.ctx)
+	manifest, e := s.ArchiveManifest(h.ctx, user, ids)
+	must(t, e)
+	if r.txs > 1 || len(manifest.Entries) != 2 || manifest.Entries[1].ReferenceID != ids[1] {
+		t.Fatal(r.txs, manifest)
+	}
+	r.txs = 0
+	var archive bytes.Buffer
+	must(t, s.Archive(h.ctx, user, ids, &archive))
+	if r.txs != 2+2*len(ids) || archive.Len() == 0 {
+		t.Fatal("archive media transactions", r.txs)
+	}
+}
+func TestMetadataReadsUseCommittedSnapshotsDuringWriteLock(t *testing.T) {
+	h := newFixture(t)
+	v := h.newUpload(t, "file", []byte("lecture"))
+	ref, e := h.s.Attach(h.ctx, user, v.ID, "bind", media.Binding{Module: "fixture", ResourceID: "draft"})
+	must(t, e)
+	tx, e := h.db.BeginTx(h.ctx, nil)
+	must(t, e)
+	defer tx.Rollback()
+	_, e = tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", "stuhelper-media:file:"+v.FileID)
+	must(t, e)
+	ctx, cancel := context.WithTimeout(h.ctx, 2*time.Second)
+	defer cancel()
+	file, e := h.s.GetFile(ctx, user, v.FileID)
+	must(t, e)
+	upload, e := h.s.GetUpload(ctx, user, v.UploadID)
+	must(t, e)
+	bound, e := h.s.GetReference(ctx, user, ref.ID)
+	must(t, e)
+	if len(file.Versions) != 1 || file.Versions[0].ID != upload.ID || bound.VersionID != v.ID {
+		t.Fatal(file.ID, upload.ID, bound.ID)
+	}
+}

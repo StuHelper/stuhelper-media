@@ -225,7 +225,17 @@ type Repository interface {
 	PendingEvents(context.Context, int) ([]Event, error)
 	AcknowledgeEvent(context.Context, string) error
 }
+
+// ReferenceSnapshot holds one committed read of the binding, version and file.
+type ReferenceSnapshot struct {
+	File      File
+	Version   Version
+	Reference Reference
+}
 type Transaction interface {
+	ReadVersion(id string, byUpload bool) (File, Version, error)
+	ReadFile(string) (FileView, error)
+	ReadReferences([]string) (map[string]ReferenceSnapshot, error)
 	ReuseCandidates(Principal, UploadRequest) ([]Version, error)
 	Lock(string) error
 	File(string) (File, error)
