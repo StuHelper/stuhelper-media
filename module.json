@@ -11,7 +11,10 @@
   ],
   "scenario_tests": {
     "MEDIA-01": [
-      "integration_test.go#TestValidationExpiryAndConcurrentIdempotency"
+      "integration_test.go#TestValidationExpiryAndConcurrentIdempotency",
+      "integration_test.go#TestUploadIdempotencyKeyAndVerifyingReconciliation",
+      "integration_test.go#TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload",
+      "document_test.go#TestDocumentTypeValidation"
     ],
     "MEDIA-02": [
       "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle",
@@ -22,10 +25,16 @@
       "integration_test.go#TestImmutableVersionsOwnershipAndCurrentBusinessAuthorization"
     ],
     "MEDIA-04": [
-      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent"
+      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent",
+      "integration_test.go#TestStaleUploadFinishCannotOverwriteApprovedOrPublishedVersion",
+      "integration_test.go#TestCleanupBackoffAndBlockedEvidence",
+      "integration_test.go#TestMetadataOperationDrainsOnClose"
     ],
     "MEDIA-05": [
-      "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"
+      "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences",
+      "integration_test.go#TestOutboxPreservesWriteOrder",
+      "integration_test.go#TestReferenceEventContextAndExcludedSubjects",
+      "integration_test.go#TestOutboxMigrationAndCommitNotification"
     ],
     "MEDIA-06": [
       "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent"
@@ -37,10 +46,12 @@
       "archive_test.go#TestArchiveManifestCurrentRightsAndSingleTransferSlot"
     ],
     "MEDIA-09": [
-      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission"
+      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission",
+      "archive_test.go#TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization"
     ],
     "MEDIA-10": [
-      "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission"
+      "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission",
+      "archive_test.go#TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization"
     ],
     "MEDIA-11": [
       "reuse_test.go#TestOwnContentReuseKeepsIndependentApprovalAndReferences",
@@ -49,7 +60,8 @@
     "MEDIA-12": [
       "reuse_test.go#TestReuseRequiresCurrentSourceRightsAndProfile",
       "reuse_test.go#TestReuseLostResponseAndRestartDoNotResendOrApprove",
-      "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle"
+      "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle",
+      "http_test.go#TestHTTPReuseReturnsDurableSession"
     ]
   }
 }
