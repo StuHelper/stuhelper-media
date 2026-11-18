@@ -202,11 +202,11 @@ func TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization(t *testing.T
 	}
 
 	viewer := media.Principal{Issuer: user.Issuer, Subject: "public-viewer"}
-	if _, e = h.s.GetVersion(h.ctx, viewer, v1.ID); !errors.Is(e, media.ErrDenied) {
-		t.Fatalf("unapproved version metadata leaked via GetVersion: %v", e)
+	if result, err := h.s.GetVersion(h.ctx, viewer, v1.ID); !errors.Is(err, media.ErrDenied) || result.ID != "" || result.UploadID != "" {
+		t.Fatal("denied version lookup must return an empty result")
 	}
-	if _, e = h.s.GetUpload(h.ctx, viewer, v1.UploadID); !errors.Is(e, media.ErrDenied) {
-		t.Fatalf("unapproved version metadata leaked via GetUpload: %v", e)
+	if result, err := h.s.GetUpload(h.ctx, viewer, v1.UploadID); !errors.Is(err, media.ErrDenied) || result.ID != "" || result.UploadID != "" {
+		t.Fatal("denied upload lookup must return an empty result")
 	}
 	if _, e = h.s.GetFile(h.ctx, viewer, v1.FileID); !errors.Is(e, media.ErrDenied) {
 		t.Fatalf("unapproved file metadata leaked via GetFile: %v", e)

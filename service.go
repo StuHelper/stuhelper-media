@@ -326,10 +326,10 @@ func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (Versi
 		v = current
 		return s.authorize(ctx, p, "media.files.read", access(f, v, nil))
 	})
-	out := VersionView{Version: v, Desired: 3}
 	if e != nil {
-		return out, e
+		return VersionView{}, e
 	}
+	out := VersionView{Version: v, Desired: 3}
 	if v.ObjectID != "" {
 		st, e := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
 		if e == nil {
