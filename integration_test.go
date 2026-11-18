@@ -610,6 +610,11 @@ func TestReplayExpiryAndReleasedHistory(t *testing.T) {
 	must(t, e)
 	var events int
 	must(t, h.db.QueryRow("SELECT count(*) FROM media.outbox WHERE data->>'type'='media.reference.released.v1'").Scan(&events))
+	var forced int
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.outbox WHERE data->'data'->>'reference_id'=$1 AND data->'data'->>'file_id'=$2 AND data->'data'->>'resource_id'=$3 AND data->'data'->>'module'=$4", b.ID, v.FileID, b.ResourceID, b.Module).Scan(&forced))
+	if forced != 1 {
+		t.Fatal(forced)
+	}
 	if oldAgain.Revision != old.Revision || newly.Revision != b.Revision+1 || events != 2 {
 		t.Fatal(oldAgain, newly, events)
 	}

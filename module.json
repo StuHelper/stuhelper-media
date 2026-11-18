@@ -25,7 +25,9 @@
     ],
     "MEDIA-05": [
       "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences",
-      "integration_test.go#TestReviewAuditAndFileEnableEvent"
+      "integration_test.go#TestReviewAuditAndFileEnableEvent",
+      "integration_test.go#TestRuntimeRejectsAuditTruncate",
+      "integration_test.go#TestRuntimeRejectsSchemaOwnerMembership"
     ],
     "MEDIA-06": [
       "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent"

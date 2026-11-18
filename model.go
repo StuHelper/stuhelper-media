@@ -193,6 +193,9 @@ type Event struct {
 }
 type EventData struct {
 	ReferenceID string `json:"reference_id,omitempty"`
+	FileID      string `json:"file_id,omitempty"`
+	Module      string `json:"module,omitempty"`
+	ResourceID  string `json:"resource_id,omitempty"`
 	Revision    int64  `json:"revision"`
 }
 type Repository interface {

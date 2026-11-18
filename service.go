@@ -402,7 +402,7 @@ func (s *Service) releaseBindings(tx Transaction, p Principal, v *Version) error
 		r.State = "released"
 		r.Revision++
 		v.Revision++
-		if err := tx.Event(Event{ID: newID(), Type: "media.reference.released.v1", Subject: v.ID, Revision: v.Revision, Time: s.now(), Actor: p, Data: EventData{ReferenceID: r.ID}}); err != nil {
+		if err := tx.Event(Event{ID: newID(), Type: "media.reference.released.v1", Subject: v.ID, Revision: v.Revision, Time: s.now(), Actor: p, Data: EventData{ReferenceID: r.ID, FileID: r.FileID, Module: r.Module, ResourceID: r.ResourceID}}); err != nil {
 			return err
 		}
 	}
