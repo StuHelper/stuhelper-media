@@ -285,6 +285,7 @@ func (s *Service) ReviewDownload(ctx context.Context, p Principal, id string, ds
 	defer done()
 	var object string
 	var quarantine, published Protection
+	var revision int64
 	check := func() error {
 		e := s.repo.Transaction(ctx, func(tx Transaction) error {
 			f, v, e := s.load(tx, id)
@@ -301,6 +302,7 @@ func (s *Service) ReviewDownload(ctx context.Context, p Principal, id string, ds
 				return ErrConflict
 			}
 			object = v.ObjectID
+			revision = v.Revision
 			quarantine = v.Profile.Quarantine
 			published = v.Profile.Published
 			return nil
@@ -320,7 +322,15 @@ func (s *Service) ReviewDownload(ctx context.Context, p Principal, id string, ds
 	if e := check(); e != nil {
 		return e
 	}
-	e = s.store.ReviewDownload(ctx, s.cfg.Actor, object, &checkedWriter{check: check, dst: dst})
+	auditRead := func() error {
+		if err := check(); err != nil {
+			return err
+		}
+		return s.repo.Transaction(ctx, func(tx Transaction) error {
+			return tx.Audit(Event{ID: newID(), Type: "media.version.reviewed.v1", Subject: id, Actor: p, Time: s.now(), Data: EventData{Revision: revision}})
+		})
+	}
+	e = s.store.ReviewDownload(ctx, s.cfg.Actor, object, &checkedWriter{check: auditRead, dst: dst})
 	if errors.Is(e, ErrDenied) || errors.Is(e, ErrConflict) {
 		return e
 	}

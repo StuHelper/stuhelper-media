@@ -569,3 +569,102 @@ func TestLostCreateAfterReplayWindowExpiresCleansOriginalObject(t *testing.T) {
 		t.Fatal("created replacement object while recovering", count)
 	}
 }
+func TestReviewAuditAndFileEnableEvent(t *testing.T) {
+	h := newFixture(t)
+	v := h.newUpload(t, "create", []byte("review"))
+	must(t, h.s.ReviewDownload(h.ctx, user, v.ID, io.Discard))
+	var count int
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.audit WHERE data->'event'->>'subject'=$1 AND data->'event'->>'type'='media.version.reviewed.v1'", v.ID).Scan(&count))
+	if count != 1 {
+		t.Fatal("review audit count", count)
+	}
+	f, e := h.s.GetFile(h.ctx, user, v.FileID)
+	must(t, e)
+	f, e = h.s.SetFileState(h.ctx, user, f.ID, "off", f.Revision, true)
+	must(t, e)
+	f, e = h.s.SetFileState(h.ctx, user, f.ID, "on", f.Revision, false)
+	must(t, e)
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.outbox WHERE data->>'type'='media.files.enable.v1' AND data->>'subject'=$1", f.ID).Scan(&count))
+	if f.Disabled || count != 1 {
+		t.Fatal(f.Disabled, count)
+	}
+}
+func TestReplayExpiryAndReleasedHistory(t *testing.T) {
+	h := newFixture(t)
+	req := request([]byte("fixture"))
+	v, e := h.s.CreateUpload(h.ctx, user, "create", req)
+	must(t, e)
+	bind := func(id string) media.Reference {
+		r, e := h.s.Attach(h.ctx, user, v.ID, id, media.Binding{Module: "fixture", ResourceID: id})
+		must(t, e)
+		return r
+	}
+	a, b := bind("a"), bind("b")
+	old, e := h.s.Release(h.ctx, user, a.ID, "release")
+	must(t, e)
+	_, e = h.s.CancelUpload(h.ctx, user, v.UploadID, "stop")
+	must(t, e)
+	oldAgain, e := h.s.GetReference(h.ctx, user, a.ID)
+	must(t, e)
+	newly, e := h.s.GetReference(h.ctx, user, b.ID)
+	must(t, e)
+	var events int
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.outbox WHERE data->>'type'='media.reference.released.v1'").Scan(&events))
+	if oldAgain.Revision != old.Revision || newly.Revision != b.Revision+1 || events != 2 {
+		t.Fatal(oldAgain, newly, events)
+	}
+	h.clock.Add(24*time.Hour - time.Second)
+	replay, e := h.s.CreateUpload(h.ctx, user, "create", req)
+	must(t, e)
+	if replay.ID != v.ID {
+		t.Fatal("early expiry")
+	}
+	h.clock.Add(time.Second)
+	next, e := h.s.CreateUpload(h.ctx, user, "create", req)
+	must(t, e)
+	if next.ID == v.ID {
+		t.Fatal("expired response replayed")
+	}
+	_, e = h.s.Sweep(h.ctx, 100, "")
+	must(t, e)
+	var expired int
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.replays WHERE expires_at<=$1", h.clock.Now()).Scan(&expired))
+	if expired != 0 {
+		t.Fatal(expired)
+	}
+}
+func TestRuntimeRejectsAuditTruncate(t *testing.T) {
+	h := newFixture(t)
+	var role string
+	must(t, h.db.QueryRow("SELECT current_user").Scan(&role))
+	_, e := h.admin.Exec("GRANT TRUNCATE ON media.audit TO " + role)
+	must(t, e)
+	if !errors.Is(h.repo.CheckRuntime(h.ctx), media.ErrDenied) {
+		t.Fatal("runtime accepted audit truncation privilege")
+	}
+}
+func TestRuntimeRejectsSchemaOwnerMembership(t *testing.T) {
+	h := newFixture(t)
+	var runtime string
+	must(t, h.db.QueryRow("SELECT current_user").Scan(&runtime))
+	owner := runtime + "_owner"
+	_, e := h.admin.Exec("CREATE ROLE " + owner + " NOLOGIN")
+	must(t, e)
+	t.Cleanup(func() {
+		_, e := h.admin.Exec("REASSIGN OWNED BY " + owner + " TO CURRENT_USER")
+		if e != nil {
+			t.Error(e)
+		}
+		_, e = h.admin.Exec("DROP ROLE " + owner)
+		if e != nil {
+			t.Error(e)
+		}
+	})
+	_, e = h.admin.Exec("ALTER SCHEMA media OWNER TO " + owner)
+	must(t, e)
+	_, e = h.admin.Exec("GRANT " + owner + " TO " + runtime)
+	must(t, e)
+	if !errors.Is(h.repo.CheckRuntime(h.ctx), media.ErrDenied) {
+		t.Fatal("runtime accepted schema owner membership")
+	}
+}

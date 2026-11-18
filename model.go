@@ -166,6 +166,7 @@ type ArchiveManifest struct {
 }
 
 type Replay struct {
+	CreatedAt   time.Time `json:"created_at"`
 	Key, Digest string
 	Result      json.RawMessage
 }
@@ -191,7 +192,8 @@ type Event struct {
 	Actor           Principal `json:"-"`
 }
 type EventData struct {
-	Revision int64 `json:"revision"`
+	ReferenceID string `json:"reference_id,omitempty"`
+	Revision    int64  `json:"revision"`
 }
 type Repository interface {
 	Transaction(context.Context, func(Transaction) error) error
@@ -212,7 +214,9 @@ type Transaction interface {
 	ScanVersions(int, string) ([]Version, error)
 	SaveVersion(Version) error
 	Counts(Principal) (files, open int, err error)
-	Replay(string) (Replay, error)
+	Replay(string, time.Time) (Replay, error)
+	PruneReplays(time.Time, int) error
+	Audit(Event) error
 	SaveReplay(Replay) error
 	Job(string) (Job, error)
 	SaveJob(Job) error

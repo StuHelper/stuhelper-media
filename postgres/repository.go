@@ -204,11 +204,15 @@ func (t *transaction) Counts(p media.Principal) (files, open int, err error) {
 	err = t.tx.QueryRowContext(t.ctx, `SELECT (SELECT count(*) FROM media.files WHERE owner_key=$1),(SELECT count(*) FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND v.state IN ('created','uploading','verifying'))`, owner(p)).Scan(&files, &open)
 	return files, open, safe(err)
 }
-func (t *transaction) Replay(k string) (media.Replay, error) {
-	return read[media.Replay](t, `SELECT data FROM media.replays WHERE key=$1`, k)
+func (t *transaction) Replay(k string, now time.Time) (media.Replay, error) {
+	return read[media.Replay](t, `SELECT data FROM media.replays WHERE key=$1 AND expires_at>$2`, k, now)
 }
 func (t *transaction) SaveReplay(v media.Replay) error {
-	return t.save(`INSERT INTO media.replays(key,data) VALUES($1,$2)`, v, v.Key)
+	return t.save(`INSERT INTO media.replays(key,expires_at,data) VALUES($1,$2,$3) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at,data=excluded.data`, v, v.Key, v.CreatedAt.Add(24*time.Hour))
+}
+func (t *transaction) PruneReplays(now time.Time, limit int) error {
+	_, err := t.tx.ExecContext(t.ctx, `WITH expired AS (SELECT key FROM media.replays WHERE expires_at<=$1 ORDER BY expires_at,key LIMIT $2 FOR UPDATE SKIP LOCKED) DELETE FROM media.replays r USING expired e WHERE r.key=e.key`, now, limit)
+	return safe(err)
 }
 func (t *transaction) Job(id string) (media.Job, error) {
 	return read[media.Job](t, `SELECT data FROM media.jobs WHERE version_id=$1 FOR UPDATE`, id)
@@ -220,10 +224,13 @@ func (t *transaction) Event(e media.Event) error {
 	e.SpecVersion = "1.0"
 	e.Source = "stuhelper://media"
 	e.DataContentType = "application/json"
-	e.Data = media.EventData{Revision: e.Revision}
+	e.Data.Revision = e.Revision
 	if err := t.save(`INSERT INTO media.outbox(id,data) VALUES($1,$2)`, e, e.ID); err != nil {
 		return err
 	}
+	return t.Audit(e)
+}
+func (t *transaction) Audit(e media.Event) error {
 	return t.save(`INSERT INTO media.audit(id,data) VALUES($1,$2)`, struct {
 		Event media.Event     `json:"event"`
 		Actor media.Principal `json:"actor"`
@@ -264,12 +271,12 @@ func (r *Repository) AcknowledgeEvent(ctx context.Context, id string) error {
 }
 func (r *Repository) CheckRuntime(ctx context.Context) error {
 	var super, createDB, createRole, ownerSchema, storageAccess bool
-	e := r.DB.QueryRowContext(ctx, `SELECT rolsuper,rolcreatedb,rolcreaterole,(SELECT nspowner=(SELECT oid FROM pg_roles WHERE rolname=current_user) FROM pg_namespace WHERE nspname='media'),COALESCE((SELECT has_schema_privilege(current_user,oid,'USAGE') FROM pg_namespace WHERE nspname='storage'),false) FROM pg_roles WHERE rolname=current_user`).Scan(&super, &createDB, &createRole, &ownerSchema, &storageAccess)
+	e := r.DB.QueryRowContext(ctx, `SELECT rolsuper,rolcreatedb,rolcreaterole,(SELECT pg_has_role(current_user,nspowner,'MEMBER') OR has_schema_privilege(current_user,oid,'CREATE') FROM pg_namespace WHERE nspname='media'),COALESCE((SELECT has_schema_privilege(current_user,oid,'USAGE') FROM pg_namespace WHERE nspname='storage'),false) FROM pg_roles WHERE rolname=current_user`).Scan(&super, &createDB, &createRole, &ownerSchema, &storageAccess)
 	if e != nil || super || createDB || createRole || ownerSchema || storageAccess {
 		return media.ErrDenied
 	}
 	var readAudit, writeAudit, changeAudit bool
-	e = r.DB.QueryRowContext(ctx, `SELECT has_table_privilege('media.audit','SELECT'),has_table_privilege('media.audit','INSERT'),has_table_privilege('media.audit','UPDATE,DELETE')`).Scan(&readAudit, &writeAudit, &changeAudit)
+	e = r.DB.QueryRowContext(ctx, `SELECT has_table_privilege('media.audit','SELECT'),has_table_privilege('media.audit','INSERT'),has_table_privilege('media.audit','UPDATE,DELETE,TRUNCATE')`).Scan(&readAudit, &writeAudit, &changeAudit)
 	if e != nil || !readAudit || !writeAudit || changeAudit {
 		return media.ErrDenied
 	}

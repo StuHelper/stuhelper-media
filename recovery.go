@@ -17,7 +17,14 @@ func (s *Service) Sweep(ctx context.Context, n int, after string) (string, error
 		return "", e
 	}
 	var rows []Version
-	e := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; rows, e = tx.ScanVersions(n, after); return e })
+	e := s.repo.Transaction(ctx, func(tx Transaction) error {
+		if err := tx.PruneReplays(s.now(), n); err != nil {
+			return err
+		}
+		var e error
+		rows, e = tx.ScanVersions(n, after)
+		return e
+	})
 	if e != nil {
 		return "", e
 	}
@@ -34,11 +41,10 @@ func (s *Service) Sweep(ctx context.Context, n int, after string) (string, error
 			if !terminal(v) && activeReferences(v) == 0 && ((v.State == "created" || v.State == "uploading" || v.State == "verifying") && !v.ExpiresAt.After(s.now()) || !v.RetainUntil.After(s.now())) {
 				v.State = "expired"
 				v.ErrorCode = ErrExpired.Error()
-				v.Revision++
-				for k := range v.References {
-					v.References[k].State = "released"
-					v.References[k].Revision++
+				if err := s.releaseBindings(tx, s.cfg.Actor, &v); err != nil {
+					return err
 				}
+				v.Revision++
 				changed = true
 			}
 			if changed {
