@@ -395,6 +395,8 @@ func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Ver
 		if !v.Approved {
 			v.Approved = true
 			v.State = "approved"
+			v.UploadUntil = time.Time{}
+			v.UploadGeneration++
 			v.Revision++
 			if e := tx.SaveVersion(v); e != nil {
 				return nil, e

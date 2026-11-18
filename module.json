@@ -11,7 +11,9 @@
   ],
   "scenario_tests": {
     "MEDIA-01": [
-      "integration_test.go#TestValidationExpiryAndConcurrentIdempotency"
+      "integration_test.go#TestValidationExpiryAndConcurrentIdempotency",
+      "integration_test.go#TestUploadIdempotencyKeyAndVerifyingReconciliation",
+      "integration_test.go#TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload"
     ],
     "MEDIA-02": [
       "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle"
@@ -20,7 +22,8 @@
       "integration_test.go#TestImmutableVersionsOwnershipAndCurrentBusinessAuthorization"
     ],
     "MEDIA-04": [
-      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent"
+      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent",
+      "integration_test.go#TestStaleUploadFinishCannotOverwriteApprovedOrPublishedVersion"
     ],
     "MEDIA-05": [
       "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"
