@@ -68,34 +68,47 @@ func (s *Service) reference(tx Transaction, id string) (File, Version, Reference
 	return f, v, Reference{}, ErrNotFound
 }
 func (s *Service) GetReference(ctx context.Context, p Principal, id string) (Reference, error) {
-	var out Reference
-	e := s.repo.Transaction(ctx, func(tx Transaction) error {
-		f, v, r, e := s.reference(tx, id)
-		if e != nil {
-			return e
-		}
-		out = r
-		return s.authorize(ctx, p, "media.references.read", access(f, v, &r))
-	})
-	return out, e
+	row, e := s.readReference(ctx, id)
+	if e != nil {
+		return Reference{}, e
+	}
+	e = s.authorize(ctx, p, "media.references.read", access(row.File, row.Version, &row.Reference))
+	if e != nil {
+		return Reference{}, e
+	}
+	return row.Reference, nil
+}
+func (s *Service) readReference(ctx context.Context, id string) (ReferenceSnapshot, error) {
+	if !idOK(id) {
+		return ReferenceSnapshot{}, ErrInput
+	}
+	var rows map[string]ReferenceSnapshot
+	e := s.repo.Transaction(ctx, func(tx Transaction) error { var err error; rows, err = tx.ReadReferences([]string{id}); return err })
+	if e != nil {
+		return ReferenceSnapshot{}, e
+	}
+	row, ok := rows[id]
+	if !ok {
+		return row, ErrNotFound
+	}
+	return row, nil
+}
+func (s *Service) downloadVersion(ctx context.Context, p Principal, row ReferenceSnapshot) (Version, error) {
+	f, v, r := row.File, row.Version, row.Reference
+	if e := s.authorize(ctx, p, "media.references.download", access(f, v, &r)); e != nil {
+		return Version{}, e
+	}
+	if f.Disabled || f.Deleting || terminal(v) || !v.Approved || r.State != "active" || v.ObjectID == "" {
+		return Version{}, ErrDenied
+	}
+	return v, nil
 }
 func (s *Service) ReferenceVersion(ctx context.Context, p Principal, id string) (Version, error) {
-	var out Version
-	e := s.repo.Transaction(ctx, func(tx Transaction) error {
-		f, v, r, e := s.reference(tx, id)
-		if e != nil {
-			return e
-		}
-		if e = s.authorize(ctx, p, "media.references.download", access(f, v, &r)); e != nil {
-			return e
-		}
-		if f.Disabled || f.Deleting || terminal(v) || !v.Approved || r.State != "active" || v.ObjectID == "" {
-			return ErrDenied
-		}
-		out = v
-		return nil
-	})
-	return out, e
+	row, e := s.readReference(ctx, id)
+	if e != nil {
+		return Version{}, e
+	}
+	return s.downloadVersion(ctx, p, row)
 }
 func (s *Service) Release(ctx context.Context, p Principal, id, key string) (Reference, error) {
 	var out, r Reference

@@ -222,36 +222,15 @@ func (s *Service) download(ctx context.Context, p Principal, id string, dst io.W
 	var object string
 	var expected Protection
 	check := func() error {
-		err := s.repo.Transaction(ctx, func(tx Transaction) error {
-			initial, ref, e := tx.Reference(id)
-			if e != nil {
-				return e
-			}
-			f, v, e := s.load(tx, initial.ID)
-			if e != nil {
-				return e
-			}
-			for _, r := range v.References {
-				if r.ID == id {
-					ref = r
-				}
-			}
-			if e = s.authorize(ctx, p, "media.references.download", access(f, v, &ref)); e != nil {
-				return e
-			}
-			if f.Disabled || f.Deleting || terminal(v) || !v.Approved || ref.State != "active" || v.ObjectID == "" {
-				return ErrDenied
-			}
-			if object != "" && object != v.ObjectID {
-				return ErrConflict
-			}
-			object = v.ObjectID
-			expected = v.Profile.Published
-			return nil
-		})
+		v, err := s.ReferenceVersion(ctx, p, id)
 		if err != nil {
 			return err
 		}
+		if object != "" && object != v.ObjectID {
+			return ErrConflict
+		}
+		object = v.ObjectID
+		expected = v.Profile.Published
 		st, err := s.store.Status(ctx, s.cfg.Actor, object)
 		if err != nil {
 			return storeError(err)
@@ -286,28 +265,24 @@ func (s *Service) ReviewDownload(ctx context.Context, p Principal, id string, ds
 	var object string
 	var quarantine, published Protection
 	check := func() error {
-		e := s.repo.Transaction(ctx, func(tx Transaction) error {
-			f, v, e := s.load(tx, id)
-			if e != nil {
-				return e
-			}
-			if e = s.authorize(ctx, p, "media.versions.review", access(f, v, nil)); e != nil {
-				return e
-			}
-			if f.Disabled || f.Deleting || terminal(v) || (v.State != "awaiting_approval" && !v.Approved) || v.ObjectID == "" {
-				return ErrDenied
-			}
-			if object != "" && object != v.ObjectID {
-				return ErrConflict
-			}
-			object = v.ObjectID
-			quarantine = v.Profile.Quarantine
-			published = v.Profile.Published
-			return nil
-		})
+		var f File
+		var v Version
+		e := s.repo.Transaction(ctx, func(tx Transaction) error { var err error; f, v, err = tx.ReadVersion(id, false); return err })
 		if e != nil {
 			return e
 		}
+		if e = s.authorize(ctx, p, "media.versions.review", access(f, v, nil)); e != nil {
+			return e
+		}
+		if f.Disabled || f.Deleting || terminal(v) || (v.State != "awaiting_approval" && !v.Approved) || v.ObjectID == "" {
+			return ErrDenied
+		}
+		if object != "" && object != v.ObjectID {
+			return ErrConflict
+		}
+		object = v.ObjectID
+		quarantine = v.Profile.Quarantine
+		published = v.Profile.Published
 		status, e := s.store.Status(ctx, s.cfg.Actor, object)
 		if e != nil {
 			return storeError(e)

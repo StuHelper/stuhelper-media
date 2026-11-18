@@ -297,19 +297,22 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 	return out, e
 }
 func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (VersionView, error) {
-	var v Version
-	e := s.repo.Transaction(ctx, func(tx Transaction) error {
-		f, current, e := s.load(tx, id)
-		if e != nil {
-			return e
-		}
-		v = current
-		return s.authorize(ctx, p, "media.files.read", access(f, v, nil))
-	})
-	out := VersionView{Version: v, Desired: 3}
-	if e != nil {
-		return out, e
+	return s.readVersion(ctx, p, id, false)
+}
+func (s *Service) readVersion(ctx context.Context, p Principal, id string, byUpload bool) (VersionView, error) {
+	if !idOK(id) {
+		return VersionView{}, ErrInput
 	}
+	var f File
+	var v Version
+	e := s.repo.Transaction(ctx, func(tx Transaction) error { var err error; f, v, err = tx.ReadVersion(id, byUpload); return err })
+	if e != nil {
+		return VersionView{}, e
+	}
+	if e = s.authorize(ctx, p, "media.files.read", access(f, v, nil)); e != nil {
+		return VersionView{}, e
+	}
+	out := VersionView{Version: v, Desired: 3}
 	if v.ObjectID != "" {
 		st, e := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
 		if e == nil {
@@ -323,40 +326,26 @@ func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (Versi
 	return out, nil
 }
 func (s *Service) GetUpload(ctx context.Context, p Principal, id string) (VersionView, error) {
-	var v Version
-	e := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; v, e = tx.Upload(id); return e })
-	if e != nil {
-		return VersionView{}, e
-	}
-	return s.GetVersion(ctx, p, v.ID)
+	return s.readVersion(ctx, p, id, true)
 }
 func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView, error) {
+	if !idOK(id) {
+		return FileView{}, ErrInput
+	}
 	var out FileView
-	e := s.repo.Transaction(ctx, func(tx Transaction) error {
-		if !idOK(id) {
-			return ErrInput
+	err := s.repo.Transaction(ctx, func(tx Transaction) error { var err error; out, err = tx.ReadFile(id); return err })
+	if err != nil {
+		return FileView{}, err
+	}
+	if len(out.Versions) == 0 {
+		return FileView{}, ErrUnavailable
+	}
+	for _, v := range out.Versions {
+		if err = s.authorize(ctx, p, "media.files.read", access(out.File, v, nil)); err != nil {
+			return FileView{}, err
 		}
-		if e := tx.Lock("file:" + id); e != nil {
-			return e
-		}
-		f, e := tx.File(id)
-		if e != nil {
-			return e
-		}
-		vs, e := tx.Versions(id)
-		if e != nil {
-			return e
-		}
-		if len(vs) == 0 {
-			return ErrUnavailable
-		}
-		if e = s.authorize(ctx, p, "media.files.read", access(f, vs[0], nil)); e != nil {
-			return e
-		}
-		out = FileView{f, vs}
-		return nil
-	})
-	return out, e
+	}
+	return out, nil
 }
 func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Version, error) {
 	var out, v Version

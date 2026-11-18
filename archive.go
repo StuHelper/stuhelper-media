@@ -25,31 +25,29 @@ func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor 
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
 	defer cancel()
-	err := s.repo.Transaction(ctx, func(tx Transaction) error {
-		rows, e := tx.Files(p, limit, cursor)
+	var rows []FileListing
+	err := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; rows, e = tx.Files(p, limit, cursor); return e })
+	if err != nil {
+		return out, err
+	}
+	for _, f := range rows {
+		if f.Owner != p {
+			return out, ErrUnavailable
+		}
+		// Authorization receives the persisted owner and purpose, just as file detail does.
+		e := s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: f.Protection})
+		if errors.Is(e, ErrDenied) {
+			continue
+		}
 		if e != nil {
-			return e
+			return out, e
 		}
-		for _, f := range rows {
-			if f.Owner != p {
-				return ErrUnavailable
-			}
-			// Authorization receives the persisted owner and purpose, just as file detail does.
-			e = s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: f.Protection})
-			if errors.Is(e, ErrDenied) {
-				continue
-			}
-			if e != nil {
-				return e
-			}
-			out.Items = append(out.Items, f.File)
-		}
-		if len(rows) == limit {
-			out.NextCursor = rows[len(rows)-1].ID
-		}
-		return nil
-	})
-	return out, err
+		out.Items = append(out.Items, f.File)
+	}
+	if len(rows) == limit {
+		out.NextCursor = rows[len(rows)-1].ID
+	}
+	return out, nil
 }
 
 func (s *Service) ArchiveManifest(ctx context.Context, p Principal, ids []string) (ArchiveManifest, error) {
@@ -60,12 +58,23 @@ func (s *Service) ArchiveManifest(ctx context.Context, p Principal, ids []string
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
 	defer cancel()
 	seen := map[string]bool{}
-	for n, id := range ids {
+	for _, id := range ids {
 		if !idOK(id) || seen[id] {
 			return ArchiveManifest{}, ErrInput
 		}
 		seen[id] = true
-		v, e := s.ReferenceVersion(ctx, p, id)
+	}
+	var rows map[string]ReferenceSnapshot
+	err := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; rows, e = tx.ReadReferences(ids); return e })
+	if err != nil {
+		return ArchiveManifest{}, err
+	}
+	for n, id := range ids {
+		row, ok := rows[id]
+		if !ok {
+			return ArchiveManifest{}, ErrNotFound
+		}
+		v, e := s.downloadVersion(ctx, p, row)
 		if e != nil {
 			return ArchiveManifest{}, e
 		}
