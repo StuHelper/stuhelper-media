@@ -103,6 +103,7 @@ type Version struct {
 	ObjectID         string      `json:"-"`
 	ObjectIssued     bool        `json:"-"`
 	TypeValidated    bool        `json:"-"`
+	UploadKey        string      `json:"-"`
 	UploadGeneration int64       `json:"-"`
 	UploadUntil      time.Time   `json:"-"`
 	Profile          Profile     `json:"-"`
@@ -142,7 +143,8 @@ type FileView struct {
 }
 type FileListing struct {
 	File
-	Protection Protection
+	Protection  Protection
+	Protections []Protection
 }
 
 type FilePage struct {

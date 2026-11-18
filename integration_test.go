@@ -570,6 +570,218 @@ func TestLostCreateAfterReplayWindowExpiresCleansOriginalObject(t *testing.T) {
 	}
 }
 
+type hookStore struct {
+	media.Store
+	ingestCalls int
+	onIngest    func(id, k string, r io.Reader) error
+}
+
+func (s *hookStore) Ingest(ctx context.Context, p media.Principal, id, k string, r io.Reader) (storage.Status, error) {
+	s.ingestCalls++
+	if s.onIngest != nil {
+		fn := s.onIngest
+		s.onIngest = nil
+		if err := fn(id, k, r); err != nil {
+			return storage.Status{}, err
+		}
+	}
+	return s.Store.Ingest(ctx, p, id, k, r)
+}
+
+func TestStaleUploadFinishCannotOverwriteApprovedOrPublishedVersion(t *testing.T) {
+	h := newFixture(t)
+	must(t, h.s.Close(h.ctx))
+	wrapped := &hookStore{Store: h.store}
+	s, e := media.New(h.repo, h.policy, wrapped, h.cfg)
+	must(t, e)
+	h.s = s
+
+	data := []byte("published lecture slides")
+	v, e := s.CreateUpload(h.ctx, user, "a02-create", request(data))
+	must(t, e)
+
+	var ref media.Reference
+	wrapped.onIngest = func(id, k string, r io.Reader) error {
+		// Bytes reached storage, then this Upload worker stalled past UploadUntil while
+		// recovery promoted the version, moderation approved it, and a reference was published.
+		_, err := h.store.Ingest(h.ctx, system, id, k, r)
+		must(t, err)
+		h.clock.Add(h.cfg.OperationTimeout + 5*time.Second)
+		_, err = h.store.Reconcile(h.ctx, system, 100, "")
+		must(t, err)
+		h.cycle(t)
+		ready := h.ready(t, v)
+		ref = h.bind(t, ready, "a02-live-resource")
+		return storage.ErrIntegrity
+	}
+	if _, e = s.Upload(h.ctx, user, v.UploadID, "a02-attempt-1", bytes.NewReader(data)); !errors.Is(e, media.ErrConflict) {
+		t.Fatalf("stale timed-out upload returned %v, want ErrConflict", e)
+	}
+
+	st, e := s.GetVersion(h.ctx, user, v.ID)
+	must(t, e)
+	if st.State != "ready" || !st.Approved {
+		t.Fatalf("stale finish overwrote published version state: %+v", st)
+	}
+	h.cycle(t)
+	var got bytes.Buffer
+	must(t, s.Download(h.ctx, user, ref.ID, &got))
+	if !bytes.Equal(got.Bytes(), data) {
+		t.Fatal("published content corrupted or deleted after stale upload finish")
+	}
+}
+
+func TestUploadIdempotencyKeyAndVerifyingReconciliation(t *testing.T) {
+	h := newFixture(t)
+	must(t, h.s.Close(h.ctx))
+	lost := &lostStore{Store: h.store}
+	wrapped := &hookStore{Store: lost}
+	s, e := media.New(h.repo, h.policy, wrapped, h.cfg)
+	must(t, e)
+	h.s = s
+
+	data := []byte("idempotent upload body")
+	v, e := s.CreateUpload(h.ctx, user, "a08-create-1", request(data))
+	must(t, e)
+	done, e := s.Upload(h.ctx, user, v.UploadID, "a08-key-1", bytes.NewReader(data))
+	must(t, e)
+	if done.State != "awaiting_approval" {
+		t.Fatal(done.State)
+	}
+	ingestsAfterFirst := wrapped.ingestCalls
+
+	// Same key + identical body replays original result without re-ingesting.
+	replayed, e := s.Upload(h.ctx, user, v.UploadID, "a08-key-1", bytes.NewReader(data))
+	must(t, e)
+	if replayed.ID != done.ID || replayed.State != "awaiting_approval" || wrapped.ingestCalls != ingestsAfterFirst {
+		t.Fatalf("unexpected replay result: %+v ingests=%d/%d", replayed, wrapped.ingestCalls, ingestsAfterFirst)
+	}
+	// Same key + different body must return 409 ErrConflict (MP-03).
+	if _, e = s.Upload(h.ctx, user, v.UploadID, "a08-key-1", bytes.NewReader([]byte("different body"))); !errors.Is(e, media.ErrConflict) {
+		t.Fatalf("same key with different bytes accepted: %v", e)
+	}
+	// Different key on already completed upload must return 409 ErrConflict.
+	if _, e = s.Upload(h.ctx, user, v.UploadID, "a08-key-2", bytes.NewReader(data)); !errors.Is(e, media.ErrConflict) {
+		t.Fatalf("different key on completed upload accepted: %v", e)
+	}
+
+	// Unconfirmed verifying upload checks storage.Status before re-streaming bytes.
+	data2 := []byte("verifying retry without duplicate ingest")
+	v2, e := s.CreateUpload(h.ctx, user, "a08-create-2", request(data2))
+	must(t, e)
+	lost.loseIngest = true
+	if _, e = s.Upload(h.ctx, user, v2.UploadID, "a08-verify-key", bytes.NewReader(data2)); !errors.Is(e, media.ErrUnavailable) {
+		t.Fatalf("expected ErrUnavailable, got %v", e)
+	}
+	ingestsBeforeRetry := wrapped.ingestCalls
+	if _, e = s.Upload(h.ctx, user, v2.UploadID, "a08-verify-key", bytes.NewReader([]byte("wrong retry bytes"))); !errors.Is(e, media.ErrConflict) {
+		t.Fatalf("verifying retry with mismatched bytes accepted: %v", e)
+	}
+	recovered, e := s.Upload(h.ctx, user, v2.UploadID, "a08-verify-key", bytes.NewReader(data2))
+	must(t, e)
+	if recovered.State != "awaiting_approval" || wrapped.ingestCalls != ingestsBeforeRetry {
+		t.Fatalf("verifying retry re-ingested bytes: state=%s ingests=%d/%d", recovered.State, wrapped.ingestCalls, ingestsBeforeRetry)
+	}
+}
+
+func TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload(t *testing.T) {
+	h := newFixture(t)
+	must(t, h.s.Close(h.ctx))
+	wrapped := &hookStore{Store: h.store}
+	cfg := h.cfg
+	cfg.UploadTTL = time.Minute
+	s, e := media.New(h.repo, h.policy, wrapped, cfg)
+	must(t, e)
+	h.s = s
+
+	// 1. Upload started shortly before UploadTTL must not be killed mid-stream by Sweep.
+	data := []byte("large file started near upload ttl")
+	v, e := s.CreateUpload(h.ctx, user, "a09-near-ttl", request(data))
+	must(t, e)
+	h.clock.Add(cfg.UploadTTL - 10*time.Second)
+	wrapped.onIngest = func(_, _ string, _ io.Reader) error {
+		h.clock.Add(20 * time.Second)
+		_, err := s.Sweep(h.ctx, 100, "")
+		return err
+	}
+	completed, e := s.Upload(h.ctx, user, v.UploadID, "a09-stream-1", bytes.NewReader(data))
+	must(t, e)
+	if completed.State != "awaiting_approval" {
+		t.Fatalf("Sweep killed active upload mid-stream: %+v", completed)
+	}
+
+	// 2. Concurrent CancelUpload during Ingest must make Upload return ErrConflict and allow immediate cleanup.
+	data2 := []byte("cancelled while streaming")
+	v2, e := s.CreateUpload(h.ctx, user, "a09-cancel-race", request(data2))
+	must(t, e)
+	wrapped.onIngest = func(_, _ string, _ io.Reader) error {
+		_, err := s.CancelUpload(h.ctx, user, v2.UploadID, "a09-cancel")
+		return err
+	}
+	if _, e = s.Upload(h.ctx, user, v2.UploadID, "a09-stream-2", bytes.NewReader(data2)); !errors.Is(e, media.ErrConflict) {
+		t.Fatalf("concurrently cancelled upload returned %v instead of ErrConflict", e)
+	}
+	st, e := s.GetVersion(h.ctx, user, v2.ID)
+	must(t, e)
+	if st.State != "cancelled" || !st.UploadUntil.IsZero() {
+		t.Fatalf("lease retained after writer returned: %s %s", st.State, st.UploadUntil)
+	}
+	// Media releases the handle, storage removes bytes, then media observes the
+	// deletion. Other pending jobs may be claimed first in any of these polls.
+	for i := 0; i < 4; i++ {
+		h.cycle(t)
+		st, e = s.GetVersion(h.ctx, user, v2.ID)
+		must(t, e)
+		if st.State == "cancelled" && st.CleanupComplete && st.StorageState == "deleted" {
+			return
+		}
+	}
+	t.Fatalf("cleanup did not finish before the old lease deadline: %s %v %s", st.State, st.CleanupComplete, st.StorageState)
+}
+
+type unavailableStatus struct{ media.Store }
+
+func (s unavailableStatus) Status(context.Context, media.Principal, string) (storage.Status, error) {
+	return storage.Status{}, storage.ErrUnavailable
+}
+func TestCleanupBackoffAndBlockedEvidence(t *testing.T) {
+	h := newFixture(t)
+	v := h.newUpload(t, "cleanup", []byte("cleanup"))
+	_, e := h.s.CancelUpload(h.ctx, user, v.UploadID, "cancel")
+	must(t, e)
+	must(t, h.s.Close(h.ctx))
+	h.s, e = media.New(h.repo, h.policy, unavailableStatus{h.store}, h.cfg)
+	must(t, e)
+	for i := 0; i < h.cfg.MaxAttempts; i++ {
+		ran, e := h.s.RunOne(h.ctx, "worker")
+		if !ran || !errors.Is(e, media.ErrUnavailable) {
+			t.Fatal(ran, e)
+		}
+		_, e = h.s.Sweep(h.ctx, 100, "")
+		must(t, e)
+		if i+1 < h.cfg.MaxAttempts {
+			delay := 5 * time.Second << i
+			h.clock.Add(delay - time.Second)
+			ran, e = h.s.RunOne(h.ctx, "worker")
+			must(t, e)
+			if ran {
+				t.Fatal("retry before backoff elapsed", i)
+			}
+			h.clock.Add(time.Second)
+		}
+	}
+	st, e := h.s.GetVersion(h.ctx, user, v.ID)
+	must(t, e)
+	if st.ErrorCode != media.ErrUnavailable.Error() || st.CleanupComplete || st.State != "cancelled" {
+		t.Fatal(st.State, st.ErrorCode)
+	}
+	var count int
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.outbox WHERE data->>'type'='media.job.blocked.v1'").Scan(&count))
+	if count != 1 {
+		t.Fatal(count)
+	}
+}
+
 type waitingPolicy struct {
 	entered chan bool
 	release chan struct{}

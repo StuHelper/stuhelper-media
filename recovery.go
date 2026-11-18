@@ -36,9 +36,12 @@ func (s *Service) Sweep(ctx context.Context, n int, after string) (string, error
 				return e
 			}
 			changed := false
-			if !terminal(v) && activeReferences(v) == 0 && ((v.State == "created" || v.State == "uploading" || v.State == "verifying") && !v.ExpiresAt.After(s.now()) || !v.RetainUntil.After(s.now())) {
+			activeUpload := v.State == "uploading" && v.UploadUntil.After(s.now())
+			if !terminal(v) && !activeUpload && activeReferences(v) == 0 && ((v.State == "created" || v.State == "uploading" || v.State == "verifying") && !v.ExpiresAt.After(s.now()) || !v.RetainUntil.After(s.now())) {
 				v.State = "expired"
 				v.ErrorCode = ErrExpired.Error()
+				v.UploadUntil = time.Time{}
+				v.UploadGeneration++
 				v.Revision++
 				for k := range v.References {
 					v.References[k].State = "released"
@@ -122,14 +125,16 @@ func (s *Service) RunOne(ctx context.Context, worker string) (bool, error) {
 			now.Attempts++
 			now.ErrorCode = errorCode(e)
 			now.State = "pending"
-			now.AvailableAt = s.now().Add(time.Duration(min(now.Attempts, 30)) * time.Second)
+			now.AvailableAt = s.now().Add(min(5*time.Second<<min(now.Attempts-1, 6), 5*time.Minute))
 			if now.Attempts >= s.cfg.MaxAttempts || errors.Is(e, ErrDenied) {
 				now.State = "blocked"
-				if !terminal(current) {
-					current.ErrorCode = now.ErrorCode
-					if err = tx.SaveVersion(current); err != nil {
-						return err
-					}
+				current.ErrorCode = now.ErrorCode
+				current.Revision++
+				if err = tx.SaveVersion(current); err != nil {
+					return err
+				}
+				if err = s.emit(tx, s.cfg.Actor, "media.job.blocked", current.ID, current.Revision); err != nil {
+					return err
 				}
 			}
 		} else {
@@ -213,7 +218,7 @@ func (s *Service) advance(ctx context.Context, j Job, f File, v Version) (bool, 
 		return true, nil
 	}
 	if v.State == "uploading" || v.State == "verifying" {
-		e = s.updateObserved(ctx, v.ID, "awaiting_approval")
+		e = s.updateObserved(ctx, v, "awaiting_approval")
 		return true, e
 	}
 	if !v.Approved {
@@ -231,13 +236,16 @@ func (s *Service) advance(ctx context.Context, j Job, f File, v Version) (bool, 
 	if st.Healthy < st.Policy.Publish {
 		return true, nil
 	}
-	return false, s.updateObserved(ctx, v.ID, "ready")
+	return false, s.updateObserved(ctx, v, "ready")
 }
-func (s *Service) updateObserved(ctx context.Context, id, state string) error {
+func (s *Service) updateObserved(ctx context.Context, observed Version, state string) error {
 	return s.repo.Transaction(ctx, func(tx Transaction) error {
-		f, v, e := s.load(tx, id)
+		f, v, e := s.load(tx, observed.ID)
 		if e != nil {
 			return e
+		}
+		if v.UploadGeneration != observed.UploadGeneration || v.UploadUntil.After(s.now()) {
+			return ErrConflict
 		}
 		if terminal(v) || f.Disabled || f.Deleting {
 			return nil
@@ -254,6 +262,7 @@ func (s *Service) updateObserved(ctx context.Context, id, state string) error {
 		v.State = state
 		v.ErrorCode = ""
 		v.UploadUntil = time.Time{}
+		v.UploadGeneration++
 		v.Revision++
 		if e = tx.SaveVersion(v); e != nil {
 			return e
