@@ -471,7 +471,7 @@ func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, r
 		}
 		return s.authorize(ctx, p, action, access(f, vs[0], nil))
 	}, func(tx Transaction) (any, error) {
-		if f.Revision != revision || f.Deleting {
+		if f.Revision != revision || f.Deleting || f.Retired {
 			return nil, ErrConflict
 		}
 		if deleting {

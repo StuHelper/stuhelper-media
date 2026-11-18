@@ -569,3 +569,86 @@ func TestLostCreateAfterReplayWindowExpiresCleansOriginalObject(t *testing.T) {
 		t.Fatal("created replacement object while recovering", count)
 	}
 }
+func TestCleanedQuotaAndLiveReferenceLimit(t *testing.T) {
+	h := newFixture(t)
+	cfg := h.cfg
+	cfg.MaxFilesPerOwner = 1
+	cfg.MaxReferences = 2
+	s, e := media.New(h.repo, h.policy, h.store, cfg)
+	must(t, e)
+	defer s.Close(h.ctx)
+	v, e := s.CreateUpload(h.ctx, user, "first", request([]byte("a")))
+	must(t, e)
+	_, e = s.CancelUpload(h.ctx, user, v.UploadID, "cancel")
+	must(t, e)
+	h.cycle(t)
+	page, e := s.ListFiles(h.ctx, user, 10, "")
+	must(t, e)
+	if len(page.Items) != 0 {
+		t.Fatal("cleaned file still listed")
+	}
+	v, e = s.CreateUpload(h.ctx, user, "second", request([]byte("b")))
+	must(t, e)
+	attach := func(id string) (media.Reference, error) {
+		return s.Attach(h.ctx, user, v.ID, id, media.Binding{Module: "fixture", ResourceID: id})
+	}
+	a, e := attach("one")
+	must(t, e)
+	_, e = attach("two")
+	must(t, e)
+	_, e = attach("three")
+	if !errors.Is(e, media.ErrCapacity) {
+		t.Fatal(e)
+	}
+	_, e = s.Release(h.ctx, user, a.ID, "release")
+	must(t, e)
+	_, e = attach("three")
+	must(t, e)
+	r, e := s.GetReference(h.ctx, user, a.ID)
+	must(t, e)
+	if r.State != "released" {
+		t.Fatal(r)
+	}
+}
+func TestDeletedFileRetiresAfterAllVersionsClean(t *testing.T) {
+	h := newFixture(t)
+	v := h.newUpload(t, "first", []byte("lecture"))
+	q := request([]byte("notes"))
+	q.FileID = v.FileID
+	_, e := h.s.CreateUpload(h.ctx, user, "second", q)
+	must(t, e)
+	f, e := h.s.GetFile(h.ctx, user, v.FileID)
+	must(t, e)
+	_, e = h.s.DeleteFile(h.ctx, user, f.ID, "remove", f.Revision)
+	must(t, e)
+	for i := 0; i < 5; i++ {
+		h.cycle(t)
+	}
+	f, e = h.s.GetFile(h.ctx, user, f.ID)
+	must(t, e)
+	if f.Deleting || !f.Disabled || len(f.Versions) != 2 {
+		t.Fatal(f)
+	}
+	for _, v := range f.Versions {
+		if !v.CleanupComplete {
+			t.Fatal(v.ID)
+		}
+	}
+	page, e := h.s.ListFiles(h.ctx, user, 1, "")
+	must(t, e)
+	if len(page.Items) != 0 {
+		t.Fatal(page)
+	}
+	// Backfill the tombstone of a file cleaned with the old schema.
+	_, e = h.admin.Exec(`UPDATE media.files SET data=(data-'retired')||'{"deleting":true}'::jsonb WHERE id=$1`, f.ID)
+	must(t, e)
+	for i := 0; i < 2; i++ {
+		_, e = h.admin.Exec(mp.Schema)
+		must(t, e)
+	}
+	f, e = h.s.GetFile(h.ctx, user, f.ID)
+	must(t, e)
+	if f.Deleting || !f.Retired {
+		t.Fatal(f.File)
+	}
+}

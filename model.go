@@ -70,6 +70,7 @@ type Config struct {
 	MaxArchiveBytes                                                                 int64
 }
 type File struct {
+	Retired     bool      `json:"-"`
 	ID          string    `json:"id"`
 	Owner       Principal `json:"-"`
 	Purpose     string    `json:"purpose"`

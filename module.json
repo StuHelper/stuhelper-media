@@ -14,7 +14,8 @@
       "integration_test.go#TestValidationExpiryAndConcurrentIdempotency"
     ],
     "MEDIA-02": [
-      "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle"
+      "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle",
+      "integration_test.go#TestCleanedQuotaAndLiveReferenceLimit"
     ],
     "MEDIA-03": [
       "integration_test.go#TestImmutableVersionsOwnershipAndCurrentBusinessAuthorization"

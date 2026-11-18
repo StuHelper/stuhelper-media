@@ -258,7 +258,7 @@ func (s *Service) updateObserved(ctx context.Context, id, state string) error {
 }
 func (s *Service) cleanupDone(ctx context.Context, id string) error {
 	return s.repo.Transaction(ctx, func(tx Transaction) error {
-		_, v, e := s.load(tx, id)
+		f, v, e := s.load(tx, id)
 		if e != nil {
 			return e
 		}
@@ -275,6 +275,26 @@ func (s *Service) cleanupDone(ctx context.Context, id string) error {
 		v.Revision++
 		if e = tx.SaveVersion(v); e != nil {
 			return e
+		}
+		versions, e := tx.Versions(f.ID)
+		if e != nil {
+			return e
+		}
+		allClean := true
+		for _, version := range versions {
+			if !version.CleanupComplete {
+				allClean = false
+				break
+			}
+		}
+		if allClean && !f.Retired {
+			f.Retired = true
+			f.Disabled = true
+			f.Deleting = false
+			f.Revision++
+			if e = tx.SaveFile(f); e != nil {
+				return e
+			}
 		}
 		return s.emit(tx, s.cfg.Actor, "media.version.cleaned", v.ID, v.Revision)
 	})
