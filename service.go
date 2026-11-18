@@ -254,8 +254,11 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 	defer finish()
 	var out Version
 	profile, ok := s.cfg.Profiles[r.Purpose]
-	if !ok || !validFilename(r.Filename) || !slices.Contains(profile.AllowedTypes, r.ContentType) || r.Size < 1 || r.Size > profile.MaxSize || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
+	if !ok || !validFilename(r.Filename) || !slices.Contains(profile.AllowedTypes, r.ContentType) || r.Size < 1 || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
 		return out, ErrInput
+	}
+	if r.Size > profile.MaxSize {
+		return out, ErrTooLarge
 	}
 	var candidate Version
 	created := false

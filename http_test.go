@@ -142,3 +142,69 @@ func TestHTTPReuseReturnsDurableSession(t *testing.T) {
 		t.Fatal(count)
 	}
 }
+func TestHTTPReviewAndBodyLimits(t *testing.T) {
+	h := newFixture(t)
+	handler, e := httpapi.New(h.s, authenticate{}, 32)
+	must(t, e)
+	call := func(method, path, key, typ string, b io.Reader) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, b)
+		r.Header.Set("Authorization", "Bearer fixture-owner")
+		r.Header.Set("Content-Type", typ)
+		r.Header.Set("Idempotency-Key", key)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	data := []byte("lecture")
+	v := h.newUpload(t, "review", data)
+	url := "/api/v1/media/versions/" + v.ID + "/review-content"
+	w := call("GET", url, "", "", nil)
+	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), data) {
+		t.Fatalf("review returned %d", w.Code)
+	}
+	h.policy.deny("media.versions.review", true)
+	w = call("GET", url, "", "", nil)
+	if w.Code != 403 || bytes.Contains(w.Body.Bytes(), data) {
+		t.Fatal(w.Code)
+	}
+	q := request(data)
+	q.Size = h.cfg.Profiles["documents"].MaxSize + 1
+	w = call("POST", "/api/v1/media/uploads", "big", "application/json", bytes.NewReader(mustJSON(t, q)))
+	if w.Code != 413 {
+		t.Fatal(w.Code)
+	}
+	w = call("POST", "/api/v1/media/uploads", "json", "application/json", strings.NewReader(strings.Repeat(" ", 65537)+"{}"))
+	if w.Code != 413 {
+		t.Fatal(w.Code)
+	}
+	fresh, e := h.s.CreateUpload(h.ctx, user, "new", request(data))
+	must(t, e)
+	w = call("PUT", "/api/v1/media/uploads/"+fresh.UploadID+"/content", "long", "application/octet-stream", bytes.NewReader(append(bytes.Clone(data), 'x')))
+	if w.Code != 413 {
+		t.Fatal(w.Code)
+	}
+	longRequest := httptest.NewRequest("PUT", "/api/v1/media/uploads/"+fresh.UploadID+"/content", strings.NewReader(strings.Repeat("x", 64)))
+	longRequest.ContentLength = -1
+	longRequest.Header.Set("Content-Type", "application/octet-stream")
+	longRequest.Header.Set("Authorization", "Bearer fixture-owner")
+	longRequest.Header.Set("Idempotency-Key", "long")
+	streamed := httptest.NewRecorder()
+	handler.ServeHTTP(streamed, longRequest)
+	if streamed.Code != 413 {
+		t.Fatal("streamed oversize", streamed.Code)
+	}
+	st, e := h.s.GetVersion(h.ctx, user, fresh.ID)
+	must(t, e)
+	if st.Healthy != 0 || st.State == "rejected" {
+		t.Fatal(st.State, st.Healthy)
+	}
+	r, e := http.NewRequest("POST", "/api/v1/media/versions/"+v.ID+"/approval", nil)
+	must(t, e)
+	r.Header.Set("Authorization", "Bearer fixture-owner")
+	r.Header.Set("Idempotency-Key", "nil-body")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+}

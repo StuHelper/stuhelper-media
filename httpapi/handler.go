@@ -141,6 +141,17 @@ func New(s *media.Service, a Authenticator, max int64) (http.Handler, error) {
 		return s.Publish(r.Context(), p, r.PathValue("id"), r.Header.Get("Idempotency-Key"))
 	})
 	h.mount(m, "GET /api/v1/media/references/{id}/content", false, h.download)
+	h.mount(m, "GET /api/v1/media/versions/{id}/review-content", false, func(w http.ResponseWriter, r *http.Request, p media.Principal) (any, error) {
+		// Headers are committed only when the service writes verified bytes.
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment")
+		dst := &reviewWriter{ResponseWriter: w}
+		err := s.ReviewDownload(r.Context(), p, r.PathValue("id"), dst)
+		if err != nil && dst.started {
+			panic(http.ErrAbortHandler)
+		}
+		return nil, err
+	})
 	return m, nil
 }
 func (h *handler) mount(m *http.ServeMux, path string, upload bool, run endpoint) {
@@ -167,7 +178,14 @@ func (h *handler) mount(m *http.ServeMux, path string, upload bool, run endpoint
 		}
 		max := int64(65536)
 		if upload {
-			max = h.max + 1
+			max = h.max
+		}
+		if r.ContentLength > max {
+			failure(w, media.ErrTooLarge)
+			return
+		}
+		if r.Body == nil {
+			r.Body = http.NoBody
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, max)
 		if len(r.Header.Values("Idempotency-Key")) > 1 {
@@ -192,16 +210,36 @@ func decode(r *http.Request, out any) error {
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if e = d.Decode(out); e != nil {
-		return media.ErrInput
+		return bodyError(e)
 	}
-	if d.Decode(new(any)) != io.EOF {
-		return media.ErrInput
+	if err := d.Decode(new(any)); err != io.EOF {
+		return bodyError(err)
 	}
 	return nil
 }
+func bodyError(e error) error {
+	var limit *http.MaxBytesError
+	if errors.As(e, &limit) {
+		return media.ErrTooLarge
+	}
+	return media.ErrInput
+}
+
+type reviewWriter struct {
+	http.ResponseWriter
+	started bool
+}
+
+func (w *reviewWriter) Write(b []byte) (int, error) {
+	w.started = true
+	return w.ResponseWriter.Write(b)
+}
 func empty(r *http.Request) error {
-	b, e := io.ReadAll(io.LimitReader(r.Body, 1))
-	if e != nil || len(b) > 0 {
+	b, e := io.ReadAll(r.Body)
+	if e != nil {
+		return bodyError(e)
+	}
+	if len(b) > 0 {
 		return media.ErrInput
 	}
 	return nil
@@ -221,7 +259,7 @@ func failure(w http.ResponseWriter, e error) {
 	for _, entry := range []struct {
 		e      error
 		status int
-	}{{media.ErrInput, 400}, {media.ErrDenied, 403}, {media.ErrNotFound, 404}, {media.ErrConflict, 409}, {media.ErrExpired, 410}, {media.ErrIntegrity, 422}, {media.ErrType, 422}, {media.ErrCapacity, 503}} {
+	}{{media.ErrTooLarge, 413}, {media.ErrInput, 400}, {media.ErrDenied, 403}, {media.ErrNotFound, 404}, {media.ErrConflict, 409}, {media.ErrExpired, 410}, {media.ErrIntegrity, 422}, {media.ErrType, 422}, {media.ErrCapacity, 503}} {
 		if errors.Is(e, entry.e) {
 			status = entry.status
 			code = entry.e.Error()

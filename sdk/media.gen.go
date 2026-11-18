@@ -105,7 +105,7 @@ type UploadRequest struct {
 	Filename    string  `json:"filename"`
 	Purpose     string  `json:"purpose"`
 
-	// ReuseExisting Attempt to reuse a completed upload owned by the current user with the same purpose, configured protection, content type, size and SHA-256. A different user digest alone never skips upload.
+	// ReuseExisting Attempt to reuse a completed upload owned by the current user with the same purpose, configured protection, content type, size and SHA-256. A different user digest alone never skips upload. Omission disables reuse.
 	ReuseExisting *bool  `json:"reuse_existing,omitempty"`
 	Sha256        string `json:"sha256"`
 	Size          int64  `json:"size"`
@@ -388,6 +388,11 @@ type ClientInterface interface {
 	// AttachReference performs a POST /api/v1/media/versions/{id}/references (the `AttachReference` operationId) request.
 	// Takes a body of the `application/json` content type.
 	AttachReference(ctx context.Context, id string, params *AttachReferenceParams, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DownloadReviewContent performs a GET /api/v1/media/versions/{id}/review-content (the `DownloadReviewContent` operationId) request.
+	//
+	// Requires current media.versions.review authorization before the first byte. Returns verified content as an attachment.
+	DownloadReviewContent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // DownloadArchiveWithBody performs a POST /api/v1/media/archives/content (the `DownloadArchive` operationId) request,
@@ -694,6 +699,21 @@ func (c *Client) AttachReferenceWithBody(ctx context.Context, id string, params 
 // Takes a body of the `application/json` content type.
 func (c *Client) AttachReference(ctx context.Context, id string, params *AttachReferenceParams, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAttachReferenceRequest(c.Server, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DownloadReviewContent performs a GET /api/v1/media/versions/{id}/review-content (the `DownloadReviewContent` operationId) request.
+//
+// Requires current media.versions.review authorization before the first byte. Returns verified content as an attachment.
+func (c *Client) DownloadReviewContent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDownloadReviewContentRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1490,6 +1510,40 @@ func NewAttachReferenceRequestWithBody(server string, id string, params *AttachR
 	return req, nil
 }
 
+// NewDownloadReviewContentRequest constructs an http.Request for the DownloadReviewContent method
+func NewDownloadReviewContentRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/media/versions/%s/review-content", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1651,6 +1705,13 @@ type ClientWithResponsesInterface interface {
 	// AttachReferenceWithResponse performs a POST /api/v1/media/versions/{id}/references (the `AttachReference` operationId) request.
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	AttachReferenceWithResponse(ctx context.Context, id string, params *AttachReferenceParams, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*AttachReferenceResponse, error)
+
+	// DownloadReviewContentWithResponse performs a GET /api/v1/media/versions/{id}/review-content (the `DownloadReviewContent` operationId) request.
+	//
+	// Requires current media.versions.review authorization before the first byte. Returns verified content as an attachment.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	DownloadReviewContentWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DownloadReviewContentResponse, error)
 }
 
 type DownloadArchiveResponse struct {
@@ -3407,6 +3468,103 @@ func (r AttachReferenceResponse) ContentType() string {
 	return ""
 }
 
+type DownloadReviewContentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Problem
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Problem
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Problem
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Problem
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Problem
+	// JSON410 the response for an HTTP 410 `application/json` response
+	JSON410 *Problem
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Problem
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Problem
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Problem
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r DownloadReviewContentResponse) GetJSON400() *Problem {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DownloadReviewContentResponse) GetJSON401() *Problem {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DownloadReviewContentResponse) GetJSON403() *Problem {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DownloadReviewContentResponse) GetJSON404() *Problem {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r DownloadReviewContentResponse) GetJSON409() *Problem {
+	return r.JSON409
+}
+
+// GetJSON410 returns the response for an HTTP 410 `application/json` response
+func (r DownloadReviewContentResponse) GetJSON410() *Problem {
+	return r.JSON410
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r DownloadReviewContentResponse) GetJSON413() *Problem {
+	return r.JSON413
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r DownloadReviewContentResponse) GetJSON422() *Problem {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r DownloadReviewContentResponse) GetJSON503() *Problem {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r DownloadReviewContentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DownloadReviewContentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DownloadReviewContentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DownloadReviewContentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // DownloadArchiveWithBodyWithResponse performs a POST /api/v1/media/archives/content (the `DownloadArchive` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -3661,6 +3819,19 @@ func (c *ClientWithResponses) AttachReferenceWithResponse(ctx context.Context, i
 		return nil, err
 	}
 	return ParseAttachReferenceResponse(rsp)
+}
+
+// DownloadReviewContentWithResponse performs a GET /api/v1/media/versions/{id}/review-content (the `DownloadReviewContent` operationId) request.
+//
+// Requires current media.versions.review authorization before the first byte. Returns verified content as an attachment.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) DownloadReviewContentWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DownloadReviewContentResponse, error) {
+	rsp, err := c.DownloadReviewContent(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDownloadReviewContentResponse(rsp)
 }
 
 // ParseDownloadArchiveResponse parses an HTTP response from a DownloadArchiveWithResponse call
@@ -5094,6 +5265,88 @@ func ParseAttachReferenceResponse(rsp *http.Response) (*AttachReferenceResponse,
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDownloadReviewContentResponse parses an HTTP response from a DownloadReviewContentWithResponse call
+func ParseDownloadReviewContentResponse(rsp *http.Response) (*DownloadReviewContentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DownloadReviewContentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest Problem
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
