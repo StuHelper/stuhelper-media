@@ -27,13 +27,15 @@
     ],
     "MEDIA-06": [
       "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent",
-      "http_test.go#TestPortableFilenamesAndRouting"
+      "http_test.go#TestPortableFilenamesAndRouting",
+      "http_test.go#TestConnectionDeadlineClearedAfterRequest"
     ],
     "MEDIA-07": [
       "integration_test.go#TestLostCreateAfterReplayWindowExpiresCleansOriginalObject"
     ],
     "MEDIA-08": [
-      "archive_test.go#TestArchiveManifestCurrentRightsAndSingleTransferSlot"
+      "archive_test.go#TestArchiveManifestCurrentRightsAndSingleTransferSlot",
+      "archive_test.go#TestArchivePreservesLegacyNameInManifest"
     ],
     "MEDIA-09": [
       "archive_test.go#TestFileListOwnerCursorAndCurrentPermission"
