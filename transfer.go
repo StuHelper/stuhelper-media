@@ -41,6 +41,21 @@ func (s *Service) ensureObject(ctx context.Context, v Version) (string, error) {
 	}
 	return st.ID, storeError(storeErr)
 }
+
+// Keep the ingress limit error even when storage maps a reader failure to its
+// own error. Only size+1 bytes are necessary to distinguish a long request.
+type uploadReader struct {
+	io.LimitedReader
+	err error
+}
+
+func (r *uploadReader) Read(p []byte) (int, error) {
+	n, err := r.LimitedReader.Read(p)
+	if err != nil && err != io.EOF {
+		r.err = err
+	}
+	return n, err
+}
 func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src io.Reader) (Version, error) {
 	if !idOK(id) || !validKey(key) || src == nil {
 		return Version{}, ErrInput
@@ -102,7 +117,11 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 	if reused {
 		return s.reuseUpload(ctx, p, v.ID)
 	}
-	prefix, e := io.ReadAll(io.LimitReader(src, 512))
+	input := &uploadReader{LimitedReader: io.LimitedReader{R: src, N: v.Size + 1}}
+	prefix, e := io.ReadAll(io.LimitReader(input, 512))
+	if input.N == 0 {
+		e = ErrTooLarge
+	}
 	if e == nil {
 		detected, _, parse := mime.ParseMediaType(http.DetectContentType(prefix))
 		if parse != nil || detected != v.ContentType {
@@ -144,8 +163,12 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		})
 	}
 	if e == nil {
-		_, err := s.store.Ingest(ctx, s.cfg.Actor, object, "media-ingest:"+v.ID, io.MultiReader(bytes.NewReader(prefix), src))
+		_, err := s.store.Ingest(ctx, s.cfg.Actor, object, "media-ingest:"+v.ID, io.MultiReader(bytes.NewReader(prefix), input))
 		e = storeError(err)
+	}
+	var limit *http.MaxBytesError
+	if input.N == 0 || errors.As(input.err, &limit) {
+		e = ErrTooLarge
 	}
 	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()

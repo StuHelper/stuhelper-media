@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	ErrTooLarge    = errors.New("media_upload_too_large")
 	ErrInput       = errors.New("media_invalid_input")
 	ErrDenied      = errors.New("media_permission_denied")
 	ErrNotFound    = errors.New("media_not_found")
