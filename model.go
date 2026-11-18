@@ -8,9 +8,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	storage "github.com/StuHelper/stuhelper-storage"
 	"io"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -24,7 +27,46 @@ var (
 	ErrType        = errors.New("media_content_type_rejected")
 	ErrCapacity    = errors.New("media_capacity_unavailable")
 	ErrExpired     = errors.New("media_upload_expired")
+
+	ErrTransferBusy     error = &codedError{code: "media_transfer_busy", parent: ErrCapacity}
+	ErrOpenUploadsLimit error = &codedError{code: "media_open_uploads_limit", parent: ErrCapacity}
+	ErrFileLimit        error = &codedError{code: "media_file_limit_exceeded", parent: ErrCapacity}
+	ErrVersionLimit     error = &codedError{code: "media_version_limit_exceeded", parent: ErrCapacity}
+	ErrReferenceLimit   error = &codedError{code: "media_reference_limit_exceeded", parent: ErrCapacity}
+	ErrArchiveTooLarge  error = &codedError{code: "media_archive_too_large", parent: ErrCapacity}
+	ErrUploadTooLarge   error = &codedError{code: "media_upload_too_large", parent: ErrInput}
+	ErrTooLarge               = ErrUploadTooLarge
+	ErrFilenameInvalid  error = &codedError{code: "media_filename_invalid", parent: ErrInput}
+	ErrTypeNotAllowed   error = &codedError{code: "media_type_not_allowed", parent: ErrInput}
 )
+
+type codedError struct {
+	code   string
+	parent error
+}
+
+func (e *codedError) Error() string { return e.code }
+func (e *codedError) Unwrap() error { return e.parent }
+
+type limitError struct {
+	err   error
+	limit int64
+}
+
+func (e *limitError) Error() string { return e.err.Error() }
+func (e *limitError) Unwrap() error { return e.err }
+
+func withLimit(err error, limit int64) error {
+	return &limitError{err: err, limit: limit}
+}
+
+func ErrorLimit(err error) (int64, bool) {
+	var le *limitError
+	if errors.As(err, &le) && le.limit > 0 {
+		return le.limit, true
+	}
+	return 0, false
+}
 
 type Principal = storage.Principal
 type Protection = storage.Protection
@@ -53,12 +95,31 @@ type Store interface {
 	ReviewDownload(context.Context, Principal, string, io.Writer) error
 }
 type Profile struct {
+	SchoolID     string     `json:"school_id,omitempty"`
 	Module       string     `json:"module"`
 	Quarantine   Protection `json:"quarantine"`
 	Published    Protection `json:"published"`
 	AllowedTypes []string   `json:"allowed_types"`
 	MaxSize      int64      `json:"max_size"`
 }
+
+const (
+	ReasonCopyrightViolation = "copyright_violation"
+	ReasonWrongCourse        = "wrong_course"
+	ReasonUnreadableContent  = "unreadable_content"
+	ReasonDuplicateContent   = "duplicate_content"
+	ReasonPolicyViolation    = "policy_violation"
+)
+
+func ValidRejectionReason(reason string) bool {
+	switch reason {
+	case ReasonCopyrightViolation, ReasonWrongCourse, ReasonUnreadableContent, ReasonDuplicateContent, ReasonPolicyViolation:
+		return true
+	default:
+		return false
+	}
+}
+
 type Observation struct {
 	Operation string        `json:"operation"`
 	Duration  time.Duration `json:"duration"`
@@ -77,25 +138,40 @@ func (f ObserverFunc) Observe(ctx context.Context, o Observation) {
 }
 
 type Config struct {
-	Profiles                                                                        map[string]Profile
-	Actor                                                                           Principal
-	Clock                                                                           func() time.Time
-	UploadTTL, UnreferencedTTL, OperationTimeout, HistoryRetention                  time.Duration
-	ParallelTransfers, MaxOpenUploads, MaxFilesPerOwner, MaxVersions, MaxReferences int
-	MaxAttempts                                                                     int
-	MaxArchiveFiles                                                                 int
-	MaxArchiveBytes                                                                 int64
-	Observer                                                                        Observer
+	Profiles                                                                           map[string]Profile
+	Actor                                                                              Principal
+	Clock                                                                              func() time.Time
+	UploadTTL, UnreferencedTTL, PendingApprovalTTL, OperationTimeout, HistoryRetention time.Duration
+	ParallelTransfers, MaxOpenUploads, MaxFilesPerOwner, MaxVersions, MaxReferences    int
+	MaxAttempts                                                                        int
+	MaxArchiveFiles                                                                    int
+	MaxArchiveBytes                                                                    int64
+	Observer                                                                           Observer
+	StagingDirectory                                                                   string
+	MaxStagingBytes                                                                    int64
+}
+type VersionSummary struct {
+	ID          string `json:"id"`
+	Number      int    `json:"number"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	State       string `json:"state"`
+	Approved    bool   `json:"approved"`
+	ErrorCode   string `json:"error_code"`
 }
 type File struct {
-	ID          string    `json:"id"`
-	Owner       Principal `json:"-"`
-	Purpose     string    `json:"purpose"`
-	Disabled    bool      `json:"disabled"`
-	Deleting    bool      `json:"deleting"`
-	Revision    int64     `json:"revision"`
-	NextVersion int       `json:"-"`
-	CreatedAt   time.Time `json:"created_at"`
+	Retired       bool            `json:"-"`
+	ID            string          `json:"id"`
+	Owner         Principal       `json:"-"`
+	Purpose       string          `json:"purpose"`
+	Disabled      bool            `json:"disabled"`
+	Deleting      bool            `json:"deleting"`
+	Revision      int64           `json:"revision"`
+	NextVersion   int             `json:"-"`
+	CreatedAt     time.Time       `json:"created_at"`
+	VersionCount  int             `json:"version_count,omitempty"`
+	LatestVersion *VersionSummary `json:"latest_version,omitempty"`
 }
 type Version struct {
 	Reused          bool      `json:"reused,omitempty"`
@@ -110,6 +186,7 @@ type Version struct {
 	Filename        string    `json:"filename"`
 	ContentType     string    `json:"content_type"`
 	Size            int64     `json:"size"`
+	UploadedBytes   int64     `json:"uploaded_bytes"`
 	SHA256          string    `json:"sha256"`
 	State           string    `json:"state"`
 	Approved        bool      `json:"approved"`
@@ -117,14 +194,21 @@ type Version struct {
 	RetainUntil     time.Time `json:"retain_until"`
 	CleanupComplete bool      `json:"cleanup_complete"`
 	ErrorCode       string    `json:"error_code"`
+	RejectionReason string    `json:"rejection_reason,omitempty"`
 	// Persistence uses Record so internal locations never enter public JSON.
-	ObjectID         string      `json:"-"`
-	ObjectIssued     bool        `json:"-"`
-	TypeValidated    bool        `json:"-"`
-	UploadGeneration int64       `json:"-"`
-	UploadUntil      time.Time   `json:"-"`
-	Profile          Profile     `json:"-"`
-	References       []Reference `json:"-"`
+	ObjectID          string      `json:"-"`
+	HandleRetainLimit time.Time   `json:"-"`
+	ObjectIssued      bool        `json:"-"`
+	TypeValidated     bool        `json:"-"`
+	UploadKey         string      `json:"-"`
+	UploadGeneration  int64       `json:"-"`
+	UploadUntil       time.Time   `json:"-"`
+	ChunkKey          string      `json:"-"`
+	ChunkOffset       int64       `json:"-"`
+	ChunkSize         int64       `json:"-"`
+	ChunkSHA256       string      `json:"-"`
+	Profile           Profile     `json:"-"`
+	References        []Reference `json:"-"`
 }
 type Reference struct {
 	ID         string `json:"id"`
@@ -144,9 +228,24 @@ type UploadRequest struct {
 	Size          int64  `json:"size"`
 	SHA256        string `json:"sha256"`
 }
+type ProfileSummary struct {
+	Purpose      string   `json:"purpose"`
+	Module       string   `json:"module"`
+	AllowedTypes []string `json:"allowed_types"`
+	MaxSize      int64    `json:"max_size"`
+}
+type ProfileCatalog struct {
+	Profiles         []ProfileSummary `json:"profiles"`
+	UploadTTLSeconds int64            `json:"upload_ttl_seconds"`
+	MaxArchiveFiles  int              `json:"max_archive_files"`
+	MaxArchiveBytes  int64            `json:"max_archive_bytes"`
+}
 type Binding struct {
 	Module     string `json:"module"`
 	ResourceID string `json:"resource_id"`
+}
+type RejectionRequest struct {
+	Reason string `json:"reason"`
 }
 type VersionView struct {
 	Version
@@ -158,9 +257,17 @@ type FileView struct {
 	File
 	Versions []Version `json:"versions"`
 }
+type FileListFilter struct {
+	Limit   int
+	Cursor  string
+	Purpose string
+	State   string
+}
+
 type FileListing struct {
 	File
-	Protection Protection
+	Protection  Protection
+	Protections []Protection
 }
 
 type FilePage struct {
@@ -169,6 +276,7 @@ type FilePage struct {
 }
 type ArchiveRequest struct {
 	References []string `json:"references"`
+	Filename   string   `json:"filename,omitempty"`
 }
 type ArchiveEntry struct {
 	ReferenceID string `json:"reference_id"`
@@ -179,14 +287,15 @@ type ArchiveEntry struct {
 	SHA256      string `json:"sha256"`
 }
 type ArchiveManifest struct {
-	Entries   []ArchiveEntry `json:"entries"`
-	TotalSize int64          `json:"total_size"`
+	Entries           []ArchiveEntry `json:"entries"`
+	TotalSize         int64          `json:"total_size"`
+	EstimatedZipBytes int64          `json:"estimated_zip_bytes"`
 }
 
 type Replay struct {
+	CreatedAt   time.Time `json:"created_at"`
 	Key, Digest string
 	Result      json.RawMessage
-	CreatedAt   time.Time `json:"created_at,omitempty"`
 }
 type JobTotals struct {
 	Pending                 int64      `json:"pending"`
@@ -234,7 +343,24 @@ type Job struct {
 	Attempts                int
 	ErrorCode               string
 }
+
+const OutboxChannel = "media_outbox"
+
+type traceParentKey struct{}
+
+var tracePattern = regexp.MustCompile("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
+
+// WithTraceParent carries the composing application's validated tracing context.
+func WithTraceParent(ctx context.Context, value string) context.Context {
+	if tracePattern.MatchString(value) && value[3:35] != "00000000000000000000000000000000" && value[36:52] != "0000000000000000" {
+		return context.WithValue(ctx, traceParentKey{}, value)
+	}
+	return ctx
+}
+
 type Event struct {
+	SchoolID        string    `json:"schoolid,omitempty"`
+	TraceParent     string    `json:"traceparent,omitempty"`
 	SpecVersion     string    `json:"specversion"`
 	Source          string    `json:"source"`
 	DataContentType string    `json:"datacontenttype"`
@@ -247,7 +373,11 @@ type Event struct {
 	Actor           Principal `json:"-"`
 }
 type EventData struct {
-	Revision int64 `json:"revision"`
+	ReferenceID string `json:"reference_id,omitempty"`
+	FileID      string `json:"file_id,omitempty"`
+	Module      string `json:"module,omitempty"`
+	ResourceID  string `json:"resource_id,omitempty"`
+	Revision    int64  `json:"revision"`
 }
 type Repository interface {
 	Transaction(context.Context, func(Transaction) error) error
@@ -255,11 +385,21 @@ type Repository interface {
 	PendingEvents(context.Context, int) ([]Event, error)
 	AcknowledgeEvent(context.Context, string) error
 }
+
+// ReferenceSnapshot holds one committed read of the binding, version and file.
+type ReferenceSnapshot struct {
+	File      File
+	Version   Version
+	Reference Reference
+}
 type Transaction interface {
+	ReadVersion(id string, byUpload bool) (File, Version, error)
+	ReadFile(string) (FileView, error)
+	ReadReferences([]string) (map[string]ReferenceSnapshot, error)
 	ReuseCandidates(Principal, UploadRequest) ([]Version, error)
 	Lock(string) error
 	File(string) (File, error)
-	Files(Principal, int, string) ([]FileListing, error)
+	Files(Principal, FileListFilter) ([]FileListing, error)
 	SaveFile(File) error
 	Version(string) (Version, error)
 	Upload(string) (Version, error)
@@ -268,14 +408,16 @@ type Transaction interface {
 	ScanVersions(int, string) ([]Version, error)
 	SaveVersion(Version) error
 	Counts(Principal) (files, open int, err error)
-	Replay(string) (Replay, error)
+	Replay(string, time.Time) (Replay, error)
+	PruneReplays(time.Time, int) error
+	Audit(Event) error
 	SaveReplay(Replay) error
 	Job(string) (Job, error)
 	SaveJob(Job) error
 	JobTotals(time.Time) (JobTotals, error)
 	FailedJobs(int, string) ([]Job, error)
 	OutboxStatus(time.Time) (OutboxStatus, error)
-	PruneHistory(time.Time, int) (PruneResult, error)
+	PruneHistory(time.Time, time.Time, int) (PruneResult, error)
 	Event(Event) error
 }
 
@@ -295,6 +437,39 @@ func hash(v any) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:])
 }
+func ValidVersionState(state string) bool {
+	switch state {
+	case "created", "uploading", "verifying", "awaiting_approval", "approved", "ready",
+		"cancelled", "expired", "rejected", "deleting", "deleted":
+		return true
+	default:
+		return false
+	}
+}
+
+func FormatFileCursor(createdAt time.Time, id string) string {
+	return fmt.Sprintf("%d.%s", createdAt.UTC().UnixMicro(), id)
+}
+
+func ParseFileCursor(raw string) (time.Time, string, error) {
+	if raw == "" || len(raw) > 128 {
+		return time.Time{}, "", ErrInput
+	}
+	dot := strings.IndexByte(raw, '.')
+	if dot <= 0 || dot >= len(raw)-1 {
+		return time.Time{}, "", ErrInput
+	}
+	micros, err := strconv.ParseInt(raw[:dot], 10, 64)
+	if err != nil || micros <= 0 {
+		return time.Time{}, "", ErrInput
+	}
+	id := raw[dot+1:]
+	if !idOK(id) {
+		return time.Time{}, "", ErrInput
+	}
+	return time.UnixMicro(micros).UTC(), id, nil
+}
+
 func terminal(v Version) bool {
 	return v.State == "cancelled" || v.State == "expired" || v.State == "rejected" || v.State == "deleting" || v.State == "deleted"
 }

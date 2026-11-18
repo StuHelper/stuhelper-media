@@ -67,8 +67,11 @@ func (s *Service) Operations(ctx context.Context, p Principal, limit int, failur
 	if limit < 1 || limit > 100 || (failuresAfter != "" && !idOK(failuresAfter)) {
 		return out, ErrInput
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
-	defer cancel()
+	ctx, done, startErr := s.operation(ctx)
+	if startErr != nil {
+		return out, startErr
+	}
+	defer done()
 	if err = s.authorize(ctx, p, "media.maintenance", Access{}); err != nil {
 		return out, err
 	}
@@ -95,7 +98,10 @@ func (s *Service) Operations(ctx context.Context, p Principal, limit int, failur
 		}
 		return s.authorize(ctx, p, "media.maintenance", Access{})
 	})
-	return out, err
+	if err != nil {
+		return Operations{}, err
+	}
+	return out, nil
 }
 
 func (s *Service) RetryJob(ctx context.Context, p Principal, versionID, key string, generation int64) (out JobFailure, err error) {
@@ -105,8 +111,11 @@ func (s *Service) RetryJob(ctx context.Context, p Principal, versionID, key stri
 	if !idOK(versionID) || generation < 1 {
 		return out, ErrInput
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
-	defer cancel()
+	ctx, done, startErr := s.operation(ctx)
+	if startErr != nil {
+		return out, startErr
+	}
+	defer done()
 	var f File
 	var v Version
 	err = s.mutation(ctx, p, "media.jobs.retry", versionID, key, RetryJobRequest{Generation: generation}, func(tx Transaction) error {
@@ -137,7 +146,7 @@ func (s *Service) RetryJob(ctx context.Context, p Principal, versionID, key stri
 		if e = tx.SaveJob(j); e != nil {
 			return nil, e
 		}
-		if e = s.emit(tx, p, "media.job.retried", v.ID, v.Revision); e != nil {
+		if e = s.emit(ctx, tx, p, "media.job.retried", v.ID, v.Revision, v.Profile.SchoolID, nil); e != nil {
 			return nil, e
 		}
 		return jobFailure(j), nil
@@ -156,18 +165,22 @@ func (s *Service) PruneAs(ctx context.Context, p Principal, limit int) (out Prun
 	if limit < 1 || limit > 1000 {
 		return out, ErrInput
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
-	defer cancel()
+	ctx, done, startErr := s.operation(ctx)
+	if startErr != nil {
+		return out, startErr
+	}
+	defer done()
 	if err = s.authorize(ctx, p, "media.maintenance", Access{}); err != nil {
 		return out, err
 	}
-	cutoff := s.now().Add(-s.cfg.HistoryRetention)
+	now := s.now()
+	cutoff := now.Add(-s.cfg.HistoryRetention)
 	err = s.repo.Transaction(ctx, func(tx Transaction) error {
 		if e := s.authorize(ctx, p, "media.maintenance", Access{}); e != nil {
 			return e
 		}
 		var e error
-		out, e = tx.PruneHistory(cutoff, limit)
+		out, e = tx.PruneHistory(now, cutoff, limit)
 		return e
 	})
 	return out, err

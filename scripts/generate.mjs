@@ -10,7 +10,7 @@ try {
   fs.mkdirSync('sdk', { recursive: true });
   const goOutput = check ? path.join(temporary, 'media.gen.go') : 'sdk/media.gen.go';
   const tsOutput = check ? path.join(temporary, 'media.gen.ts') : 'sdk/media.gen.ts';
-  execFileSync('go', ['run', 'github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0', '-generate', 'types,client', '-package', 'sdk', '-o', goOutput, 'contracts/media.openapi.json'], { stdio: 'inherit' });
+  execFileSync('go', ['run', 'github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0', '-generate', 'types,client,std-http', '-package', 'sdk', '-o', goOutput, 'contracts/media.openapi.json'], { stdio: 'inherit' });
   execFileSync('pnpm', ['exec', 'openapi-typescript', 'contracts/media.openapi.json', '-o', tsOutput], { stdio: 'inherit' });
   if (check) {
     for (const [expected, actual] of [['sdk/media.gen.go', goOutput], ['sdk/media.gen.ts', tsOutput]]) {
