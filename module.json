@@ -25,7 +25,8 @@
     "MEDIA-05": [
       "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences",
       "integration_test.go#TestOutboxPreservesWriteOrder",
-      "integration_test.go#TestReferenceEventContextAndExcludedSubjects"
+      "integration_test.go#TestReferenceEventContextAndExcludedSubjects",
+      "integration_test.go#TestOutboxMigrationAndCommitNotification"
     ],
     "MEDIA-06": [
       "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent"
