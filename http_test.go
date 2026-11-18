@@ -100,3 +100,45 @@ func TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent(t *testing.T) 
 	}
 }
 func mustJSON(t *testing.T, v any) []byte { t.Helper(); b, e := json.Marshal(v); must(t, e); return b }
+func TestHTTPReuseReturnsDurableSession(t *testing.T) {
+	h := newFixture(t)
+	data := []byte("same lecture")
+	h.newUpload(t, "source", data)
+	must(t, h.s.Close(h.ctx))
+	var e error
+	h.s, e = media.New(h.repo, h.policy, &lostStore{Store: h.store, loseCreate: true}, h.cfg)
+	must(t, e)
+	handler, e := httpapi.New(h.s, authenticate{}, 1<<20)
+	must(t, e)
+	r := request(data)
+	r.ReuseExisting = true
+	post := func() media.Version {
+		w := httptest.NewRecorder()
+		q := httptest.NewRequest("POST", "/api/v1/media/uploads", bytes.NewReader(mustJSON(t, r)))
+		q.Header.Set("Content-Type", "application/json")
+		q.Header.Set("Idempotency-Key", "reuse")
+		q.Header.Set("Authorization", "Bearer fixture-owner")
+		handler.ServeHTTP(w, q)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		var v media.Version
+		must(t, json.Unmarshal(w.Body.Bytes(), &v))
+		return v
+	}
+	v := post()
+	if !v.Reused || v.UploadID == "" || v.State != "verifying" {
+		t.Fatal(v.State)
+	}
+	_, e = h.s.CancelUpload(h.ctx, user, v.UploadID, "cancel")
+	must(t, e)
+	again := post()
+	if again.UploadID != v.UploadID || again.State != "cancelled" {
+		t.Fatal(again.State)
+	}
+	var count int
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.versions").Scan(&count))
+	if count != 2 {
+		t.Fatal(count)
+	}
+}

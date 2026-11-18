@@ -47,7 +47,8 @@
     "MEDIA-12": [
       "reuse_test.go#TestReuseRequiresCurrentSourceRightsAndProfile",
       "reuse_test.go#TestReuseLostResponseAndRestartDoNotResendOrApprove",
-      "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle"
+      "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle",
+      "http_test.go#TestHTTPReuseReturnsDurableSession"
     ]
   }
 }
