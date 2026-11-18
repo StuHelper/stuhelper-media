@@ -36,6 +36,7 @@ type versionRecord struct {
 	ObjectID         string            `json:"object_id"`
 	ObjectIssued     bool              `json:"object_issued"`
 	TypeValidated    bool              `json:"type_validated"`
+	UploadKey        string            `json:"upload_key,omitempty"`
 	UploadGeneration int64             `json:"upload_generation"`
 	UploadUntil      time.Time         `json:"upload_until"`
 	Profile          media.Profile     `json:"profile"`
@@ -43,7 +44,7 @@ type versionRecord struct {
 }
 
 func record(v media.Version) versionRecord {
-	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
+	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.ObjectIssued, v.TypeValidated, v.UploadKey, v.UploadGeneration, v.UploadUntil, v.Profile, v.References}
 }
 func (r versionRecord) value() media.Version {
 	v := r.Version
@@ -53,6 +54,7 @@ func (r versionRecord) value() media.Version {
 	v.ObjectID = r.ObjectID
 	v.ObjectIssued = r.ObjectIssued
 	v.TypeValidated = r.TypeValidated
+	v.UploadKey = r.UploadKey
 	v.UploadGeneration = r.UploadGeneration
 	v.UploadUntil = r.UploadUntil
 	v.Profile = r.Profile
@@ -142,15 +144,19 @@ func (t *transaction) File(id string) (media.File, error) {
 func (t *transaction) Files(p media.Principal, limit int, cursor string) ([]media.FileListing, error) {
 	type row struct {
 		fileRecord
-		Protection media.Protection `json:"protection"`
+		Protections []media.Protection `json:"protections"`
 	}
-	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protection',v.data->'profile'->'published') FROM media.files f JOIN LATERAL (SELECT data FROM media.versions WHERE file_id=f.id ORDER BY number LIMIT 1) v ON true WHERE owner_key=$1 AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
+	rows, e := list[row](t, `SELECT f.data || jsonb_build_object('protections',v.protections) FROM media.files f JOIN LATERAL (SELECT jsonb_agg(DISTINCT CASE WHEN COALESCE((data->>'approved')::boolean,false) THEN data->'profile'->'published' ELSE data->'profile'->'quarantine' END) AS protections FROM media.versions WHERE file_id=f.id) v ON v.protections IS NOT NULL WHERE owner_key=$1 AND f.id>$2 ORDER BY f.id LIMIT $3`, owner(p), cursor, limit)
 	out := []media.FileListing{}
 	for _, r := range rows {
 		f := r.File
 		f.Owner = r.Owner
 		f.NextVersion = r.NextVersion
-		out = append(out, media.FileListing{File: f, Protection: r.Protection})
+		var first media.Protection
+		if len(r.Protections) > 0 {
+			first = r.Protections[0]
+		}
+		out = append(out, media.FileListing{File: f, Protection: first, Protections: r.Protections})
 	}
 	return out, e
 }

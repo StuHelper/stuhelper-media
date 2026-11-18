@@ -12,6 +12,8 @@
   "scenario_tests": {
     "MEDIA-01": [
       "integration_test.go#TestValidationExpiryAndConcurrentIdempotency",
+      "integration_test.go#TestUploadIdempotencyKeyAndVerifyingReconciliation",
+      "integration_test.go#TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload",
       "document_test.go#TestDocumentTypeValidation"
     ],
     "MEDIA-02": [
@@ -21,7 +23,8 @@
       "integration_test.go#TestImmutableVersionsOwnershipAndCurrentBusinessAuthorization"
     ],
     "MEDIA-04": [
-      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent"
+      "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent",
+      "integration_test.go#TestStaleUploadFinishCannotOverwriteApprovedOrPublishedVersion"
     ],
     "MEDIA-05": [
       "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"
@@ -36,10 +39,12 @@
       "archive_test.go#TestArchiveManifestCurrentRightsAndSingleTransferSlot"
     ],
     "MEDIA-09": [
-      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission"
+      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission",
+      "archive_test.go#TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization"
     ],
     "MEDIA-10": [
-      "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission"
+      "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission",
+      "archive_test.go#TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization"
     ],
     "MEDIA-11": [
       "reuse_test.go#TestOwnContentReuseKeepsIndependentApprovalAndReferences",
