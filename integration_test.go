@@ -13,6 +13,7 @@ import (
 	mp "github.com/StuHelper/stuhelper-media/postgres"
 	storage "github.com/StuHelper/stuhelper-storage"
 	sp "github.com/StuHelper/stuhelper-storage/postgres"
+	"github.com/jackc/pgx/v5/stdlib"
 	"io"
 	"os"
 	"strings"
@@ -815,5 +816,104 @@ func TestMetadataOperationDrainsOnClose(t *testing.T) {
 	must(t, s.Close(h.ctx))
 	if !deadline || !errors.Is(closeErr, context.DeadlineExceeded) || err == nil {
 		t.Fatalf("deadline=%v close=%v read=%v", deadline, closeErr, err)
+	}
+}
+func TestOutboxPreservesWriteOrder(t *testing.T) {
+	h := newFixture(t)
+	for i, id := range []string{"zzz", "aaa"} {
+		must(t, h.repo.Transaction(h.ctx, func(tx media.Transaction) error {
+			return tx.Event(media.Event{ID: id, Subject: "lecture", Type: "media.fixture.v1", Time: h.clock.Now(), Revision: int64(i + 1)})
+		}))
+	}
+	events, e := h.repo.PendingEvents(h.ctx, 1)
+	must(t, e)
+	if len(events) != 1 || events[0].ID != "zzz" || events[0].Data.Revision != 1 {
+		t.Fatal(events)
+	}
+	must(t, h.repo.AcknowledgeEvent(h.ctx, events[0].ID))
+	events, e = h.repo.PendingEvents(h.ctx, 1)
+	must(t, e)
+	if len(events) != 1 || events[0].ID != "aaa" {
+		t.Fatal(events)
+	}
+}
+func TestReferenceEventContextAndExcludedSubjects(t *testing.T) {
+	h := newFixture(t)
+	p := h.cfg.Profiles["documents"]
+	p.SchoolID = "fixture-school"
+	h.cfg.Profiles["documents"] = p
+	s, e := media.New(h.repo, h.policy, h.store, h.cfg)
+	must(t, e)
+	defer s.Close(h.ctx)
+	trace := "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
+	ctx := media.WithTraceParent(h.ctx, trace)
+	v, e := s.CreateUpload(ctx, user, "v", request([]byte("lecture")))
+	must(t, e)
+	r, e := s.Attach(ctx, user, v.ID, "bind", media.Binding{Module: "fixture", ResourceID: "lecture"})
+	must(t, e)
+	other, e := s.CreateUpload(ctx, user, "other", request([]byte("other")))
+	must(t, e)
+	rows, e := h.repo.PendingOutbox(ctx, 1, []string{v.ID})
+	must(t, e)
+	if len(rows) != 1 || rows[0].Subject != other.ID {
+		t.Fatal(rows)
+	}
+	rows, e = h.repo.PendingEvents(ctx, 10)
+	must(t, e)
+	ev := rows[1]
+	if ev.Data.ReferenceID != r.ID || ev.Data.FileID != v.FileID || ev.Data.ResourceID != "lecture" || ev.Data.Module != "fixture" || ev.SchoolID != p.SchoolID || ev.TraceParent != trace {
+		t.Fatal(ev)
+	}
+}
+func TestOutboxMigrationAndCommitNotification(t *testing.T) {
+	h := newFixture(t)
+	listener, e := h.db.Conn(h.ctx)
+	must(t, e)
+	defer listener.Close()
+	_, e = listener.ExecContext(h.ctx, "LISTEN media_outbox")
+	must(t, e)
+	emit := func(id string, rev int64, abort bool) error {
+		return h.repo.Transaction(h.ctx, func(tx media.Transaction) error {
+			if err := tx.Event(media.Event{ID: id, Type: "media.fixture.v1", Time: h.clock.Now(), Subject: "history", Revision: rev}); err != nil {
+				return err
+			}
+			if abort {
+				return media.ErrConflict
+			}
+			return nil
+		})
+	}
+	if !errors.Is(emit("rollback", 3, true), media.ErrConflict) {
+		t.Fatal("fixture did not roll back")
+	}
+	wait := func(d time.Duration) error {
+		ctx, cancel := context.WithTimeout(h.ctx, d)
+		defer cancel()
+		return listener.Raw(func(raw any) error {
+			n, e := raw.(*stdlib.Conn).Conn().WaitForNotification(ctx)
+			if e == nil && (n.Channel != media.OutboxChannel || n.Payload != "") {
+				t.Fatal(n)
+			}
+			return e
+		})
+	}
+	if e = wait(40 * time.Millisecond); !errors.Is(e, context.DeadlineExceeded) {
+		t.Fatal(e)
+	}
+	must(t, emit("later", 2, false))
+	must(t, wait(time.Second))
+	must(t, emit("earlier", 1, false))
+	// Simulate the pre-sequence table, then run the real migration twice.
+	_, e = h.admin.Exec("ALTER TABLE media.outbox DROP COLUMN seq")
+	must(t, e)
+	for i := 0; i < 2; i++ {
+		_, e = h.admin.Exec(mp.Schema)
+		must(t, e)
+	}
+	must(t, emit("newest", 3, false))
+	rows, e := h.repo.PendingEvents(h.ctx, 10)
+	must(t, e)
+	if len(rows) != 3 || rows[0].ID != "earlier" || rows[1].ID != "later" || rows[2].ID != "newest" {
+		t.Fatal(rows)
 	}
 }

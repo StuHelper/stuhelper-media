@@ -193,7 +193,7 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 		if err = s.schedule(tx, v.ID, true); err != nil {
 			return err
 		}
-		return s.emit(tx, p, "media.upload.checked", v.ID, current.Revision)
+		return s.emit(ctx, tx, p, "media.upload.checked", v.ID, current.Revision, v.Profile.SchoolID, nil)
 	})
 	if save != nil {
 		return out, save

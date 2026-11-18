@@ -53,6 +53,7 @@ type Store interface {
 	ReviewDownload(context.Context, Principal, string, io.Writer) error
 }
 type Profile struct {
+	SchoolID     string     `json:"school_id,omitempty"`
 	Module       string     `json:"module"`
 	Quarantine   Protection `json:"quarantine"`
 	Published    Protection `json:"published"`
@@ -180,7 +181,24 @@ type Job struct {
 	Attempts                int
 	ErrorCode               string
 }
+
+const OutboxChannel = "media_outbox"
+
+type traceParentKey struct{}
+
+var tracePattern = regexp.MustCompile("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
+
+// WithTraceParent carries the composing application's validated tracing context.
+func WithTraceParent(ctx context.Context, value string) context.Context {
+	if tracePattern.MatchString(value) && value[3:35] != "00000000000000000000000000000000" && value[36:52] != "0000000000000000" {
+		return context.WithValue(ctx, traceParentKey{}, value)
+	}
+	return ctx
+}
+
 type Event struct {
+	SchoolID        string    `json:"schoolid,omitempty"`
+	TraceParent     string    `json:"traceparent,omitempty"`
 	SpecVersion     string    `json:"specversion"`
 	Source          string    `json:"source"`
 	DataContentType string    `json:"datacontenttype"`
@@ -193,7 +211,11 @@ type Event struct {
 	Actor           Principal `json:"-"`
 }
 type EventData struct {
-	Revision int64 `json:"revision"`
+	ReferenceID string `json:"reference_id,omitempty"`
+	FileID      string `json:"file_id,omitempty"`
+	Module      string `json:"module,omitempty"`
+	ResourceID  string `json:"resource_id,omitempty"`
+	Revision    int64  `json:"revision"`
 }
 type Repository interface {
 	Transaction(context.Context, func(Transaction) error) error
