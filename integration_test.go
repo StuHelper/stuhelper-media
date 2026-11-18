@@ -1189,3 +1189,81 @@ func TestReusePlanStartsWithOwner(t *testing.T) {
 		t.Fatal(plan.String())
 	}
 }
+
+type gatedReader struct {
+	prefix  []byte
+	rest    []byte
+	started chan struct{}
+	release chan struct{}
+	stage   int
+}
+
+func (g *gatedReader) Read(p []byte) (int, error) {
+	switch g.stage {
+	case 0:
+		g.stage = 1
+		n := copy(p, g.prefix)
+		close(g.started)
+		return n, nil
+	case 1:
+		<-g.release
+		g.stage = 2
+		n := copy(p, g.rest)
+		return n, nil
+	default:
+		return 0, io.EOF
+	}
+}
+
+func TestUploadLeaseConcurrencyAndReviewDownloadBoundaries(t *testing.T) {
+	h := newFixture(t)
+	data := []byte("streaming upload guarded by active lease")
+	created, e := h.s.CreateUpload(h.ctx, user, "lease-create", request(data))
+	must(t, e)
+
+	var early bytes.Buffer
+	if e = h.s.ReviewDownload(h.ctx, user, created.ID, &early); !errors.Is(e, media.ErrDenied) || early.Len() != 0 {
+		t.Fatal("unverified created version served to reviewer", e, early.Len())
+	}
+
+	gate := &gatedReader{
+		prefix:  data[:16],
+		rest:    data[16:],
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.s.Upload(h.ctx, user, created.UploadID, "lease-u1", gate)
+		done <- err
+	}()
+	<-gate.started
+
+	if _, e = h.s.Upload(h.ctx, user, created.UploadID, "lease-u2", bytes.NewReader(data)); !errors.Is(e, media.ErrConflict) {
+		t.Fatal("concurrent upload accepted during active lease", e)
+	}
+	if _, e = h.s.RunOne(h.ctx, "lease-worker"); e != nil {
+		t.Fatal("background worker failed during active lease", e)
+	}
+	close(gate.release)
+	must(t, <-done)
+
+	st, e := h.s.GetVersion(h.ctx, user, created.ID)
+	must(t, e)
+	if st.State != "awaiting_approval" {
+		t.Fatal("unexpected state after leased upload finished", st.State)
+	}
+
+	h.provider.mu.Lock()
+	h.provider.hook = func() {
+		f, err := h.s.GetFile(h.ctx, user, created.FileID)
+		must(t, err)
+		_, err = h.s.SetFileState(h.ctx, user, f.ID, "disable-during-review", f.Revision, true)
+		must(t, err)
+	}
+	h.provider.mu.Unlock()
+	var reviewOut bytes.Buffer
+	if e = h.s.ReviewDownload(h.ctx, user, created.ID, &reviewOut); !errors.Is(e, media.ErrDenied) || reviewOut.Len() != 0 {
+		t.Fatal("disabled file bytes leaked during review download", e, reviewOut.Len())
+	}
+}
