@@ -186,7 +186,7 @@ func (s *Service) schedule(tx Transaction, id string, reset bool) error {
 	if j.State == "running" {
 		return nil
 	}
-	if j.State == "blocked" && !reset {
+	if !reset && (j.State == "blocked" || (j.State == "pending" && j.Attempts > 0)) {
 		return nil
 	}
 	j.VersionID = id
