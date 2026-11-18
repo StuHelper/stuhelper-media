@@ -1611,3 +1611,167 @@ func TestRestartedUploadRevalidatesReplacementPrefix(t *testing.T) {
 		t.Fatal(next.State)
 	}
 }
+
+type failingStatusStore struct {
+	media.Store
+	mu   sync.Mutex
+	fail bool
+}
+
+func (s *failingStatusStore) Status(ctx context.Context, p media.Principal, id string) (storage.Status, error) {
+	s.mu.Lock()
+	fail := s.fail
+	s.mu.Unlock()
+	if fail {
+		return storage.Status{}, storage.ErrUnavailable
+	}
+	return s.Store.Status(ctx, p, id)
+}
+
+func TestOperationsBacklogBlockedRetryBoundedPruneAndReadiness(t *testing.T) {
+	h := newFixture(t)
+	must(t, h.s.Close(h.ctx))
+
+	var obsMu sync.Mutex
+	var observations []media.Observation
+	faultStore := &failingStatusStore{Store: h.store}
+	cfg := h.cfg
+	cfg.MaxAttempts = 1
+	cfg.HistoryRetention = time.Hour
+	cfg.Observer = media.ObserverFunc(func(_ context.Context, o media.Observation) {
+		obsMu.Lock()
+		observations = append(observations, o)
+		obsMu.Unlock()
+	})
+	var e error
+	h.s, e = media.New(h.repo, h.policy, faultStore, cfg)
+	must(t, e)
+
+	must(t, h.s.Readiness(h.ctx))
+	if _, e = h.s.Operations(h.ctx, user, 10, ""); !errors.Is(e, media.ErrDenied) {
+		t.Fatal("ordinary user accessed maintenance operations", e)
+	}
+
+	// Create an upload whose ingest response is lost so it enters verifying with a pending job.
+	lostIngest := &lostStore{Store: faultStore, loseIngest: true}
+	must(t, h.s.Close(h.ctx))
+	h.s, e = media.New(h.repo, h.policy, lostIngest, cfg)
+	must(t, e)
+
+	data := []byte("blocked recovery job")
+	v, e := h.s.CreateUpload(media.WithTraceID(h.ctx, "trace-ops-001"), user, "ops-create", request(data))
+	must(t, e)
+	if _, e = h.s.Upload(h.ctx, user, v.UploadID, "ops-upload", bytes.NewReader(data)); !errors.Is(e, media.ErrUnavailable) {
+		t.Fatal("expected simulated lost ingest error", e)
+	}
+
+	// Now make storage.Status fail so RunOne exhausts MaxAttempts=1 and marks the job blocked,
+	// and Readiness + GetVersion observe the storage degradation.
+	faultStore.mu.Lock()
+	faultStore.fail = true
+	faultStore.mu.Unlock()
+	if e = h.s.Readiness(h.ctx); !errors.Is(e, media.ErrUnavailable) {
+		t.Fatal("expected Readiness failure when storage is unavailable", e)
+	}
+	degradedView, e := h.s.GetVersion(media.WithTraceID(h.ctx, "trace-status-deg"), user, v.ID)
+	must(t, e)
+	if degradedView.StorageState != "unavailable" {
+		t.Fatalf("expected unavailable storage_state, got %s", degradedView.StorageState)
+	}
+
+	ran, e := h.s.RunOne(h.ctx, "ops-worker")
+	if !ran || !errors.Is(e, media.ErrUnavailable) {
+		t.Fatalf("expected failed RunOne attempt, ran=%v err=%v", ran, e)
+	}
+
+	h.clock.Add(10 * time.Second)
+	ops, e := h.s.Operations(h.ctx, system, 10, "")
+	must(t, e)
+	if ops.Jobs.Blocked != 1 || len(ops.Failures) != 1 || ops.Failures[0].VersionID != v.ID || ops.Failures[0].State != "blocked" || ops.Outbox.Pending == 0 {
+		t.Fatalf("unexpected operations snapshot: %+v", ops)
+	}
+
+	if _, e = h.s.RetryJob(h.ctx, system, v.ID, "wrong-gen", ops.Failures[0].Generation+1); !errors.Is(e, media.ErrConflict) {
+		t.Fatal("accepted stale generation on RetryJob", e)
+	}
+
+	faultStore.mu.Lock()
+	faultStore.fail = false
+	faultStore.mu.Unlock()
+	must(t, h.s.Readiness(h.ctx))
+
+	retried, e := h.s.RetryJob(h.ctx, system, v.ID, "retry-valid", ops.Failures[0].Generation)
+	must(t, e)
+	if retried.State != "pending" || retried.Generation != ops.Failures[0].Generation+1 || retried.Attempts != 0 {
+		t.Fatalf("unexpected retried job state: %+v", retried)
+	}
+	ran, e = h.s.RunOne(h.ctx, "ops-worker")
+	must(t, e)
+	if !ran {
+		t.Fatal("expected retried job to run")
+	}
+	recovered, e := h.s.GetVersion(h.ctx, user, v.ID)
+	must(t, e)
+	if recovered.State != "awaiting_approval" {
+		t.Fatalf("retried job did not recover version: %+v", recovered)
+	}
+
+	// Acknowledge 2 outbox events, leave remaining unacknowledged, advance past HistoryRetention, and prune.
+	pendingEvents, e := h.repo.PendingEvents(h.ctx, 2)
+	must(t, e)
+	for _, ev := range pendingEvents {
+		must(t, h.repo.AcknowledgeEvent(h.ctx, ev.ID))
+	}
+	var beforeAudit, beforeOutbox int
+	must(t, h.db.QueryRow(`SELECT (SELECT count(*) FROM media.audit),(SELECT count(*) FROM media.outbox WHERE NOT delivered)`).Scan(&beforeAudit, &beforeOutbox))
+
+	h.clock.Add(2 * time.Hour)
+	early, e := h.s.Prune(h.ctx, 1)
+	must(t, e)
+	if early.DeletedReplays != 0 || early.DeletedEvents != 1 {
+		t.Fatalf("manual pruning shortened replay window: %+v", early)
+	}
+	still, e := h.s.CreateUpload(h.ctx, user, "ops-create", request(data))
+	must(t, e)
+	if still.ID != v.ID {
+		t.Fatal("prune changed replay before 24h", still.ID, v.ID)
+	}
+	h.clock.Add(23 * time.Hour)
+	// Create one fresh replay that must NOT be pruned.
+	_, e = h.s.CreateUpload(h.ctx, user, "fresh-replay", request([]byte("fresh")))
+	must(t, e)
+
+	pruned1, e := h.s.Prune(h.ctx, 1)
+	must(t, e)
+	if pruned1.DeletedEvents != 1 || pruned1.DeletedReplays != 1 {
+		t.Fatalf("bounded prune(1) expected 1 event & 1 replay, got %+v", pruned1)
+	}
+	prunedRest, e := h.s.Prune(h.ctx, 100)
+	must(t, e)
+	if prunedRest.DeletedEvents != 0 {
+		t.Fatalf("expected all delivered events already pruned, got %+v", prunedRest)
+	}
+
+	var afterAudit, remainingFreshReplays, remainingUndelivered int
+	must(t, h.db.QueryRow(`SELECT (SELECT count(*) FROM media.audit),(SELECT count(*) FROM media.replays),(SELECT count(*) FROM media.outbox WHERE NOT delivered)`).Scan(&afterAudit, &remainingFreshReplays, &remainingUndelivered))
+	if afterAudit < beforeAudit || remainingFreshReplays != 1 || remainingUndelivered < beforeOutbox {
+		t.Fatalf("prune touched audit, fresh replay, or undelivered outbox: audit=%d/%d replays=%d undelivered=%d/%d", afterAudit, beforeAudit, remainingFreshReplays, remainingUndelivered, beforeOutbox)
+	}
+
+	obsMu.Lock()
+	foundStatusObs := false
+	for _, o := range observations {
+		if o.Operation == "media.storage.status" && o.ErrorCode == "media_unavailable" && o.TraceID == "trace-status-deg" {
+			foundStatusObs = true
+		}
+	}
+	obsMu.Unlock()
+	if !foundStatusObs {
+		t.Fatalf("missing sanitized storage status degradation observation: %+v", observations)
+	}
+
+	must(t, h.s.Close(h.ctx))
+	if e = h.s.Readiness(h.ctx); !errors.Is(e, media.ErrUnavailable) {
+		t.Fatal("closed service reported ready", e)
+	}
+}

@@ -96,6 +96,10 @@
     ],
     "MEDIA-15": [
       "http_test.go#TestHTTPDownloadConditionalRangeInlineAndCustomArchiveFilename"
+    ],
+    "MEDIA-16": [
+      "integration_test.go#TestOperationsBacklogBlockedRetryBoundedPruneAndReadiness",
+      "http_test.go#TestHTTPOperationsRetryPruneAndTraceObservation"
     ]
   }
 }

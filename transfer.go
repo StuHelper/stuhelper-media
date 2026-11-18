@@ -67,7 +67,9 @@ func (r *uploadReader) Read(p []byte) (int, error) {
 	}
 	return n, err
 }
-func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src io.Reader) (Version, error) {
+func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src io.Reader) (ret Version, retErr error) {
+	started := s.now()
+	defer func() { s.observe(ctx, "media.uploads.write", started, retErr) }()
 	if !idOK(id) || !validKey(key) || src == nil {
 		return Version{}, ErrInput
 	}

@@ -60,6 +60,11 @@ func (m *authMux) HandleFunc(pattern string, next func(http.ResponseWriter, *htt
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		ctx, cancel := context.WithTimeout(r.Context(), m.h.s.OperationTimeout())
 		defer cancel()
+		if trace := r.Header.Get("Traceparent"); trace != "" {
+			ctx = media.WithTraceID(ctx, trace)
+		} else if id := r.Header.Get("X-Request-Id"); id != "" {
+			ctx = media.WithTraceID(ctx, id)
+		}
 		r = r.WithContext(ctx)
 		controller := http.NewResponseController(w)
 		deadline, _ := ctx.Deadline()
@@ -195,6 +200,39 @@ func (h *handler) AppendUploadContent(w http.ResponseWriter, r *http.Request, id
 	out, e := h.s.AppendUpload(r.Context(), principalOf(r), id, params.IdempotencyKey, params.UploadOffset, r.Body)
 	h.respond(w, r, out, e)
 }
+func (h *handler) GetOperations(w http.ResponseWriter, r *http.Request, params sdk.GetOperationsParams) {
+	for name, values := range r.URL.Query() {
+		if len(values) != 1 || (name != "limit" && name != "failures_after") {
+			h.respond(w, r, nil, media.ErrInput)
+			return
+		}
+	}
+	limit := 50
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	out, e := h.s.Operations(r.Context(), principalOf(r), limit, r.URL.Query().Get("failures_after"))
+	h.respond(w, r, out, e)
+}
+func (h *handler) RetryJob(w http.ResponseWriter, r *http.Request, id string, params sdk.RetryJobParams) {
+	var req media.RetryJobRequest
+	if e := decode(r, &req); e != nil {
+		h.respond(w, r, nil, e)
+		return
+	}
+	out, e := h.s.RetryJob(r.Context(), principalOf(r), id, params.IdempotencyKey, req.Generation)
+	h.respond(w, r, out, e)
+}
+func (h *handler) PruneHistory(w http.ResponseWriter, r *http.Request) {
+	var req media.PruneRequest
+	if e := decode(r, &req); e != nil {
+		h.respond(w, r, nil, e)
+		return
+	}
+	out, e := h.s.PruneAs(r.Context(), principalOf(r), req.Limit)
+	h.respond(w, r, out, e)
+}
+
 func (h *handler) GetUpload(w http.ResponseWriter, r *http.Request, id string) {
 	out, e := h.s.GetUpload(r.Context(), principalOf(r), id)
 	h.respond(w, r, out, e)

@@ -363,6 +363,41 @@ type FileView struct {
 	Versions  []Version `json:"versions"`
 }
 
+// JobFailure defines model for JobFailure.
+type JobFailure struct {
+	Attempts    int64     `json:"attempts"`
+	AvailableAt time.Time `json:"available_at"`
+	ErrorCode   string    `json:"error_code"`
+	Generation  int64     `json:"generation"`
+	State       string    `json:"state"`
+	VersionId   string    `json:"version_id"`
+}
+
+// JobTotals defines model for JobTotals.
+type JobTotals struct {
+	Blocked                 int64      `json:"blocked"`
+	OldestPendingAgeSeconds int64      `json:"oldest_pending_age_seconds"`
+	OldestPendingAt         *time.Time `json:"oldest_pending_at,omitempty"`
+	Pending                 int64      `json:"pending"`
+	Running                 int64      `json:"running"`
+}
+
+// Operations defines model for Operations.
+type Operations struct {
+	Failures           []JobFailure `json:"failures"`
+	FailuresNextCursor string       `json:"failures_next_cursor"`
+	GeneratedAt        time.Time    `json:"generated_at"`
+	Jobs               JobTotals    `json:"jobs"`
+	Outbox             OutboxStatus `json:"outbox"`
+}
+
+// OutboxStatus defines model for OutboxStatus.
+type OutboxStatus struct {
+	OldestPendingAgeSeconds int64      `json:"oldest_pending_age_seconds"`
+	OldestPendingAt         *time.Time `json:"oldest_pending_at,omitempty"`
+	Pending                 int64      `json:"pending"`
+}
+
 // Problem defines model for Problem.
 type Problem struct {
 	Code              ProblemCode `json:"code"`
@@ -389,6 +424,17 @@ type ProfileSummary struct {
 	Purpose      string   `json:"purpose"`
 }
 
+// PruneRequest defines model for PruneRequest.
+type PruneRequest struct {
+	Limit int64 `json:"limit"`
+}
+
+// PruneResult defines model for PruneResult.
+type PruneResult struct {
+	DeletedEvents  int64 `json:"deleted_events"`
+	DeletedReplays int64 `json:"deleted_replays"`
+}
+
 // Reference defines model for Reference.
 type Reference struct {
 	FileId     string         `json:"file_id"`
@@ -409,6 +455,11 @@ type RejectionReason string
 // RejectionRequest defines model for RejectionRequest.
 type RejectionRequest struct {
 	Reason RejectionReason `json:"reason"`
+}
+
+// RetryJobRequest defines model for RetryJobRequest.
+type RetryJobRequest struct {
+	Generation int64 `json:"generation"`
 }
 
 // Revision defines model for Revision.
@@ -529,6 +580,17 @@ type SetFileStateParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// GetOperationsParams defines parameters for GetOperations.
+type GetOperationsParams struct {
+	Limit         *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	FailuresAfter *string `form:"failures_after,omitempty" json:"failures_after,omitempty"`
+}
+
+// RetryJobParams defines parameters for RetryJob.
+type RetryJobParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // ReleaseReferenceParams defines parameters for ReleaseReference.
 type ReleaseReferenceParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
@@ -606,6 +668,12 @@ type DeleteFileJSONRequestBody = Revision
 
 // SetFileStateJSONRequestBody defines body for SetFileState for application/json ContentType.
 type SetFileStateJSONRequestBody = FileState
+
+// RetryJobJSONRequestBody defines body for RetryJob for application/json ContentType.
+type RetryJobJSONRequestBody = RetryJobRequest
+
+// PruneHistoryJSONRequestBody defines body for PruneHistory for application/json ContentType.
+type PruneHistoryJSONRequestBody = PruneRequest
 
 // CreateUploadJSONRequestBody defines body for CreateUpload for application/json ContentType.
 type CreateUploadJSONRequestBody = UploadRequest
@@ -729,6 +797,25 @@ type ClientInterface interface {
 	// SetFileState performs a PUT /api/v1/media/files/{id}/state (the `SetFileState` operationId) request.
 	// Takes a body of the `application/json` content type.
 	SetFileState(ctx context.Context, id string, params *SetFileStateParams, body SetFileStateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetOperations performs a GET /api/v1/media/operations (the `GetOperations` operationId) request.
+	GetOperations(ctx context.Context, params *GetOperationsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RetryJobWithBody performs a POST /api/v1/media/operations/jobs/{version_id}/retry (the `RetryJob` operationId) request,
+	// with any type of body and a specified content type.
+	RetryJobWithBody(ctx context.Context, versionId string, params *RetryJobParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RetryJob performs a POST /api/v1/media/operations/jobs/{version_id}/retry (the `RetryJob` operationId) request.
+	// Takes a body of the `application/json` content type.
+	RetryJob(ctx context.Context, versionId string, params *RetryJobParams, body RetryJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PruneHistoryWithBody performs a POST /api/v1/media/operations/prune (the `PruneHistory` operationId) request,
+	// with any type of body and a specified content type.
+	PruneHistoryWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PruneHistory performs a POST /api/v1/media/operations/prune (the `PruneHistory` operationId) request.
+	// Takes a body of the `application/json` content type.
+	PruneHistory(ctx context.Context, body PruneHistoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListProfiles performs a GET /api/v1/media/profiles (the `ListProfiles` operationId) request.
 	ListProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -928,6 +1015,75 @@ func (c *Client) SetFileStateWithBody(ctx context.Context, id string, params *Se
 // Takes a body of the `application/json` content type.
 func (c *Client) SetFileState(ctx context.Context, id string, params *SetFileStateParams, body SetFileStateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetFileStateRequest(c.Server, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetOperations performs a GET /api/v1/media/operations (the `GetOperations` operationId) request.
+func (c *Client) GetOperations(ctx context.Context, params *GetOperationsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetOperationsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RetryJobWithBody performs a POST /api/v1/media/operations/jobs/{version_id}/retry (the `RetryJob` operationId) request,
+// with any type of body and a specified content type.
+func (c *Client) RetryJobWithBody(ctx context.Context, versionId string, params *RetryJobParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRetryJobRequestWithBody(c.Server, versionId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RetryJob performs a POST /api/v1/media/operations/jobs/{version_id}/retry (the `RetryJob` operationId) request.
+// Takes a body of the `application/json` content type.
+func (c *Client) RetryJob(ctx context.Context, versionId string, params *RetryJobParams, body RetryJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRetryJobRequest(c.Server, versionId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PruneHistoryWithBody performs a POST /api/v1/media/operations/prune (the `PruneHistory` operationId) request,
+// with any type of body and a specified content type.
+func (c *Client) PruneHistoryWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPruneHistoryRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PruneHistory performs a POST /api/v1/media/operations/prune (the `PruneHistory` operationId) request.
+// Takes a body of the `application/json` content type.
+func (c *Client) PruneHistory(ctx context.Context, body PruneHistoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPruneHistoryRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1515,6 +1671,172 @@ func NewSetFileStateRequestWithBody(server string, id string, params *SetFileSta
 		req.Header.Set("Idempotency-Key", headerParam0)
 
 	}
+
+	return req, nil
+}
+
+// NewGetOperationsRequest constructs an http.Request for the GetOperations method
+func NewGetOperationsRequest(server string, params *GetOperationsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/media/operations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.FailuresAfter != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "failures_after", *params.FailuresAfter, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRetryJobRequest calls the generic RetryJob builder with application/json body
+func NewRetryJobRequest(server string, versionId string, params *RetryJobParams, body RetryJobJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRetryJobRequestWithBody(server, versionId, params, "application/json", bodyReader)
+}
+
+// NewRetryJobRequestWithBody constructs an http.Request for the RetryJob method, with any body, and a specified content type
+func NewRetryJobRequestWithBody(server string, versionId string, params *RetryJobParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "version_id", versionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/media/operations/jobs/%s/retry", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewPruneHistoryRequest calls the generic PruneHistory builder with application/json body
+func NewPruneHistoryRequest(server string, body PruneHistoryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPruneHistoryRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPruneHistoryRequestWithBody constructs an http.Request for the PruneHistory method, with any body, and a specified content type
+func NewPruneHistoryRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/media/operations/prune")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -2420,6 +2742,31 @@ type ClientWithResponsesInterface interface {
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	SetFileStateWithResponse(ctx context.Context, id string, params *SetFileStateParams, body SetFileStateJSONRequestBody, reqEditors ...RequestEditorFn) (*SetFileStateResponse, error)
 
+	// GetOperationsWithResponse performs a GET /api/v1/media/operations (the `GetOperations` operationId) request.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	GetOperationsWithResponse(ctx context.Context, params *GetOperationsParams, reqEditors ...RequestEditorFn) (*GetOperationsResponse, error)
+
+	// RetryJobWithBodyWithResponse performs a POST /api/v1/media/operations/jobs/{version_id}/retry (the `RetryJob` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	RetryJobWithBodyWithResponse(ctx context.Context, versionId string, params *RetryJobParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RetryJobResponse, error)
+
+	// RetryJobWithResponse performs a POST /api/v1/media/operations/jobs/{version_id}/retry (the `RetryJob` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	RetryJobWithResponse(ctx context.Context, versionId string, params *RetryJobParams, body RetryJobJSONRequestBody, reqEditors ...RequestEditorFn) (*RetryJobResponse, error)
+
+	// PruneHistoryWithBodyWithResponse performs a POST /api/v1/media/operations/prune (the `PruneHistory` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	PruneHistoryWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PruneHistoryResponse, error)
+
+	// PruneHistoryWithResponse performs a POST /api/v1/media/operations/prune (the `PruneHistory` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	PruneHistoryWithResponse(ctx context.Context, body PruneHistoryJSONRequestBody, reqEditors ...RequestEditorFn) (*PruneHistoryResponse, error)
+
 	// ListProfilesWithResponse performs a GET /api/v1/media/profiles (the `ListProfiles` operationId) request.
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -3215,6 +3562,318 @@ func (r SetFileStateResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetFileStateResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetOperationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Operations
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Problem
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Problem
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Problem
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Problem
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Problem
+	// JSON410 the response for an HTTP 410 `application/json` response
+	JSON410 *Problem
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Problem
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Problem
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetOperationsResponse) GetJSON200() *Operations {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetOperationsResponse) GetJSON400() *Problem {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetOperationsResponse) GetJSON401() *Problem {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetOperationsResponse) GetJSON403() *Problem {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetOperationsResponse) GetJSON404() *Problem {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r GetOperationsResponse) GetJSON409() *Problem {
+	return r.JSON409
+}
+
+// GetJSON410 returns the response for an HTTP 410 `application/json` response
+func (r GetOperationsResponse) GetJSON410() *Problem {
+	return r.JSON410
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r GetOperationsResponse) GetJSON413() *Problem {
+	return r.JSON413
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetOperationsResponse) GetJSON422() *Problem {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GetOperationsResponse) GetJSON503() *Problem {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r GetOperationsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetOperationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetOperationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetOperationsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RetryJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *JobFailure
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Problem
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Problem
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Problem
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Problem
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Problem
+	// JSON410 the response for an HTTP 410 `application/json` response
+	JSON410 *Problem
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Problem
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Problem
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RetryJobResponse) GetJSON200() *JobFailure {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RetryJobResponse) GetJSON400() *Problem {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RetryJobResponse) GetJSON401() *Problem {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RetryJobResponse) GetJSON403() *Problem {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RetryJobResponse) GetJSON404() *Problem {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RetryJobResponse) GetJSON409() *Problem {
+	return r.JSON409
+}
+
+// GetJSON410 returns the response for an HTTP 410 `application/json` response
+func (r RetryJobResponse) GetJSON410() *Problem {
+	return r.JSON410
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r RetryJobResponse) GetJSON413() *Problem {
+	return r.JSON413
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r RetryJobResponse) GetJSON422() *Problem {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RetryJobResponse) GetJSON503() *Problem {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r RetryJobResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RetryJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RetryJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RetryJobResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PruneHistoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *PruneResult
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Problem
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Problem
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Problem
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Problem
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Problem
+	// JSON410 the response for an HTTP 410 `application/json` response
+	JSON410 *Problem
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Problem
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Problem
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PruneHistoryResponse) GetJSON200() *PruneResult {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r PruneHistoryResponse) GetJSON400() *Problem {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r PruneHistoryResponse) GetJSON401() *Problem {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r PruneHistoryResponse) GetJSON403() *Problem {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r PruneHistoryResponse) GetJSON404() *Problem {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r PruneHistoryResponse) GetJSON409() *Problem {
+	return r.JSON409
+}
+
+// GetJSON410 returns the response for an HTTP 410 `application/json` response
+func (r PruneHistoryResponse) GetJSON410() *Problem {
+	return r.JSON410
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r PruneHistoryResponse) GetJSON413() *Problem {
+	return r.JSON413
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r PruneHistoryResponse) GetJSON422() *Problem {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r PruneHistoryResponse) GetJSON503() *Problem {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r PruneHistoryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PruneHistoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PruneHistoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PruneHistoryResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5124,6 +5783,61 @@ func (c *ClientWithResponses) SetFileStateWithResponse(ctx context.Context, id s
 	return ParseSetFileStateResponse(rsp)
 }
 
+// GetOperationsWithResponse performs a GET /api/v1/media/operations (the `GetOperations` operationId) request.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) GetOperationsWithResponse(ctx context.Context, params *GetOperationsParams, reqEditors ...RequestEditorFn) (*GetOperationsResponse, error) {
+	rsp, err := c.GetOperations(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetOperationsResponse(rsp)
+}
+
+// RetryJobWithBodyWithResponse performs a POST /api/v1/media/operations/jobs/{version_id}/retry (the `RetryJob` operationId) request,
+// with any type of body and a specified content type.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) RetryJobWithBodyWithResponse(ctx context.Context, versionId string, params *RetryJobParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RetryJobResponse, error) {
+	rsp, err := c.RetryJobWithBody(ctx, versionId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRetryJobResponse(rsp)
+}
+
+// RetryJobWithResponse performs a POST /api/v1/media/operations/jobs/{version_id}/retry (the `RetryJob` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) RetryJobWithResponse(ctx context.Context, versionId string, params *RetryJobParams, body RetryJobJSONRequestBody, reqEditors ...RequestEditorFn) (*RetryJobResponse, error) {
+	rsp, err := c.RetryJob(ctx, versionId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRetryJobResponse(rsp)
+}
+
+// PruneHistoryWithBodyWithResponse performs a POST /api/v1/media/operations/prune (the `PruneHistory` operationId) request,
+// with any type of body and a specified content type.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) PruneHistoryWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PruneHistoryResponse, error) {
+	rsp, err := c.PruneHistoryWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePruneHistoryResponse(rsp)
+}
+
+// PruneHistoryWithResponse performs a POST /api/v1/media/operations/prune (the `PruneHistory` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) PruneHistoryWithResponse(ctx context.Context, body PruneHistoryJSONRequestBody, reqEditors ...RequestEditorFn) (*PruneHistoryResponse, error) {
+	rsp, err := c.PruneHistory(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePruneHistoryResponse(rsp)
+}
+
 // ListProfilesWithResponse performs a GET /api/v1/media/profiles (the `ListProfiles` operationId) request.
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5979,6 +6693,273 @@ func ParseSetFileStateResponse(rsp *http.Response) (*SetFileStateResponse, error
 			headers.RetryAfter = &value
 		}
 		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetOperationsResponse parses an HTTP response from a GetOperationsWithResponse call
+func ParseGetOperationsResponse(rsp *http.Response) (*GetOperationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetOperationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Operations
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRetryJobResponse parses an HTTP response from a RetryJobWithResponse call
+func ParseRetryJobResponse(rsp *http.Response) (*RetryJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RetryJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePruneHistoryResponse parses an HTTP response from a PruneHistoryWithResponse call
+func ParsePruneHistoryResponse(rsp *http.Response) (*PruneHistoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PruneHistoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PruneResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -7691,6 +8672,15 @@ type ServerInterface interface {
 	// (PUT /api/v1/media/files/{id}/state)
 	SetFileState(w http.ResponseWriter, r *http.Request, id string, params SetFileStateParams)
 
+	// (GET /api/v1/media/operations)
+	GetOperations(w http.ResponseWriter, r *http.Request, params GetOperationsParams)
+
+	// (POST /api/v1/media/operations/jobs/{version_id}/retry)
+	RetryJob(w http.ResponseWriter, r *http.Request, versionId string, params RetryJobParams)
+
+	// (POST /api/v1/media/operations/prune)
+	PruneHistory(w http.ResponseWriter, r *http.Request)
+
 	// (GET /api/v1/media/profiles)
 	ListProfiles(w http.ResponseWriter, r *http.Request)
 
@@ -7974,6 +8964,120 @@ func (siw *ServerInterfaceWrapper) SetFileState(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetFileState(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOperations operation middleware
+func (siw *ServerInterfaceWrapper) GetOperations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOperationsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "failures_after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "failures_after", r.URL.Query(), &params.FailuresAfter, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "failures_after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "failures_after", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOperations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RetryJob operation middleware
+func (siw *ServerInterfaceWrapper) RetryJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "version_id" -------------
+	var versionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version_id", r.PathValue("version_id"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RetryJobParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RetryJob(w, r, versionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PruneHistory operation middleware
+func (siw *ServerInterfaceWrapper) PruneHistory(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PruneHistory(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8891,6 +9995,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/media/files/{id}", wrapper.DeleteFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/files/{id}", wrapper.GetFile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/media/files/{id}/state", wrapper.SetFileState)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/operations", wrapper.GetOperations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/media/operations/jobs/{version_id}/retry", wrapper.RetryJob)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/media/operations/prune", wrapper.PruneHistory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/profiles", wrapper.ListProfiles)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/media/references/{id}", wrapper.ReleaseReference)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/references/{id}", wrapper.GetReference)

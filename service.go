@@ -48,6 +48,12 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 	if c.MaxArchiveFiles < 1 || c.MaxArchiveFiles > 100 || c.MaxArchiveBytes < 1 || c.MaxArchiveBytes > 1<<30 {
 		return nil, ErrInput
 	}
+	if c.HistoryRetention == 0 {
+		c.HistoryRetention = 24 * time.Hour
+	}
+	if c.HistoryRetention < time.Minute || c.HistoryRetention > 365*24*time.Hour {
+		return nil, ErrInput
+	}
 	profiles := make(map[string]Profile, len(c.Profiles))
 	var maxProfileSize int64
 	for name, p := range c.Profiles {
@@ -218,7 +224,7 @@ func (s *Service) mutation(ctx context.Context, p Principal, action, id, key str
 		if e != nil {
 			return ErrUnavailable
 		}
-		if e = tx.SaveReplay(Replay{CreatedAt: s.now(), Key: op, Digest: fingerprint, Result: b}); e != nil {
+		if e = tx.SaveReplay(Replay{Key: op, Digest: fingerprint, Result: b, CreatedAt: s.now().UTC()}); e != nil {
 			return e
 		}
 		return json.Unmarshal(b, out)
@@ -280,13 +286,14 @@ func validFilename(v string) bool {
 	}
 	return true
 }
-func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r UploadRequest) (Version, error) {
+func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r UploadRequest) (out Version, e error) {
+	started := s.now()
+	defer func() { s.observe(ctx, "media.uploads.create", started, e) }()
 	ctx, finish, startErr := s.operation(ctx)
 	if startErr != nil {
 		return Version{}, startErr
 	}
 	defer finish()
-	var out Version
 	profile, ok := s.cfg.Profiles[r.Purpose]
 	if !ok || r.Size < 1 || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
 		return out, ErrInput
@@ -316,7 +323,7 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 		}
 	}
 	var f File
-	e := s.mutation(ctx, p, "media.uploads.create", r.FileID, key, r, func(tx Transaction) error {
+	e = s.mutation(ctx, p, "media.uploads.create", r.FileID, key, r, func(tx Transaction) error {
 		if e := tx.Lock("owner:" + hash(p)); e != nil {
 			return e
 		}
@@ -468,7 +475,9 @@ func (s *Service) ListProfiles(ctx context.Context, p Principal) (ProfileCatalog
 	}
 	return out, nil
 }
-func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (VersionView, error) {
+func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (out VersionView, e error) {
+	started := s.now()
+	defer func() { s.observe(ctx, "media.versions.read", started, e) }()
 	return s.readVersion(ctx, p, id, false)
 }
 func (s *Service) readVersion(ctx context.Context, p Principal, id string, byUpload bool) (VersionView, error) {
@@ -491,13 +500,15 @@ func (s *Service) readVersion(ctx context.Context, p Principal, id string, byUpl
 	}
 	out := VersionView{Version: s.normalizeVersionProgress(v), Desired: 3}
 	if v.ObjectID != "" {
-		st, e := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
-		if e == nil {
+		stStarted := s.now()
+		st, stErr := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
+		if stErr == nil {
 			out.StorageState = st.State
 			out.Healthy = st.Healthy
 			out.Desired = st.Desired
 		} else {
 			out.StorageState = "unavailable"
+			s.observe(ctx, "media.storage.status", stStarted, storeError(stErr))
 		}
 	}
 	return out, nil

@@ -294,6 +294,59 @@ func (t *transaction) Job(id string) (media.Job, error) {
 func (t *transaction) SaveJob(j media.Job) error {
 	return t.save(`INSERT INTO media.jobs(version_id,state,available_at,lease_until,data) VALUES($1,$2,$3,$4,$5) ON CONFLICT(version_id) DO UPDATE SET state=excluded.state,available_at=excluded.available_at,lease_until=excluded.lease_until,data=excluded.data`, j, j.VersionID, j.State, j.AvailableAt, j.LeaseUntil)
 }
+func (t *transaction) JobTotals(now time.Time) (media.JobTotals, error) {
+	var out media.JobTotals
+	var oldest sql.NullTime
+	err := t.tx.QueryRowContext(t.ctx, `SELECT count(*) FILTER (WHERE state='pending'),count(*) FILTER (WHERE state='running'),count(*) FILTER (WHERE state='blocked'),MIN(available_at) FILTER (WHERE state='pending') FROM media.jobs`).Scan(&out.Pending, &out.Running, &out.Blocked, &oldest)
+	if err != nil {
+		return out, safe(err)
+	}
+	if oldest.Valid {
+		ts := oldest.Time.UTC()
+		out.OldestPendingAt = &ts
+		if now.After(ts) {
+			out.OldestPendingAgeSeconds = int64(now.Sub(ts) / time.Second)
+		}
+	}
+	return out, nil
+}
+func (t *transaction) FailedJobs(limit int, after string) ([]media.Job, error) {
+	return list[media.Job](t, `SELECT data FROM media.jobs WHERE (state='blocked' OR COALESCE((data->>'Attempts')::int,0)>0) AND version_id>$1 ORDER BY version_id LIMIT $2`, after, limit)
+}
+func (t *transaction) OutboxStatus(now time.Time) (media.OutboxStatus, error) {
+	var out media.OutboxStatus
+	var oldest sql.NullTime
+	err := t.tx.QueryRowContext(t.ctx, `SELECT count(*),MIN((data->>'time')::timestamptz) FROM media.outbox WHERE NOT delivered`).Scan(&out.Pending, &oldest)
+	if err != nil {
+		return out, safe(err)
+	}
+	if oldest.Valid {
+		ts := oldest.Time.UTC()
+		out.OldestPendingAt = &ts
+		if now.After(ts) {
+			out.OldestPendingAgeSeconds = int64(now.Sub(ts) / time.Second)
+		}
+	}
+	return out, nil
+}
+func (t *transaction) PruneHistory(now, cutoff time.Time, limit int) (media.PruneResult, error) {
+	var out media.PruneResult
+	replaysRes, err := t.tx.ExecContext(t.ctx, `WITH doomed AS (
+		SELECT key FROM media.replays
+		WHERE expires_at <= $1 AND expires_at <= $2::timestamptz + interval '24 hours'
+		ORDER BY expires_at,key LIMIT $3 FOR UPDATE SKIP LOCKED
+	) DELETE FROM media.replays r USING doomed d WHERE r.key=d.key`, now, cutoff, limit)
+	if err != nil {
+		return out, safe(err)
+	}
+	out.DeletedReplays, _ = replaysRes.RowsAffected()
+	eventsRes, err := t.tx.ExecContext(t.ctx, `WITH doomed AS (SELECT id FROM media.outbox WHERE delivered AND (data->>'time')::timestamptz <= $1 ORDER BY id LIMIT $2) DELETE FROM media.outbox WHERE id IN (SELECT id FROM doomed)`, cutoff, limit)
+	if err != nil {
+		return out, safe(err)
+	}
+	out.DeletedEvents, _ = eventsRes.RowsAffected()
+	return out, nil
+}
 func (t *transaction) Event(e media.Event) error {
 	e.SpecVersion = "1.0"
 	e.Source = "stuhelper://media"

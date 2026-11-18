@@ -120,17 +120,35 @@ func ValidRejectionReason(reason string) bool {
 	}
 }
 
+type Observation struct {
+	Operation string        `json:"operation"`
+	Duration  time.Duration `json:"duration"`
+	ErrorCode string        `json:"error_code,omitempty"`
+	TraceID   string        `json:"trace_id,omitempty"`
+}
+type Observer interface {
+	Observe(context.Context, Observation)
+}
+type ObserverFunc func(context.Context, Observation)
+
+func (f ObserverFunc) Observe(ctx context.Context, o Observation) {
+	if f != nil {
+		f(ctx, o)
+	}
+}
+
 type Config struct {
-	Profiles                                                                        map[string]Profile
-	Actor                                                                           Principal
-	Clock                                                                           func() time.Time
-	UploadTTL, UnreferencedTTL, PendingApprovalTTL, OperationTimeout                time.Duration
-	ParallelTransfers, MaxOpenUploads, MaxFilesPerOwner, MaxVersions, MaxReferences int
-	MaxAttempts                                                                     int
-	MaxArchiveFiles                                                                 int
-	MaxArchiveBytes                                                                 int64
-	StagingDirectory                                                                string
-	MaxStagingBytes                                                                 int64
+	Profiles                                                                           map[string]Profile
+	Actor                                                                              Principal
+	Clock                                                                              func() time.Time
+	UploadTTL, UnreferencedTTL, PendingApprovalTTL, OperationTimeout, HistoryRetention time.Duration
+	ParallelTransfers, MaxOpenUploads, MaxFilesPerOwner, MaxVersions, MaxReferences    int
+	MaxAttempts                                                                        int
+	MaxArchiveFiles                                                                    int
+	MaxArchiveBytes                                                                    int64
+	Observer                                                                           Observer
+	StagingDirectory                                                                   string
+	MaxStagingBytes                                                                    int64
 }
 type VersionSummary struct {
 	ID          string `json:"id"`
@@ -279,6 +297,43 @@ type Replay struct {
 	Key, Digest string
 	Result      json.RawMessage
 }
+type JobTotals struct {
+	Pending                 int64      `json:"pending"`
+	Running                 int64      `json:"running"`
+	Blocked                 int64      `json:"blocked"`
+	OldestPendingAt         *time.Time `json:"oldest_pending_at,omitempty"`
+	OldestPendingAgeSeconds int64      `json:"oldest_pending_age_seconds"`
+}
+type OutboxStatus struct {
+	Pending                 int64      `json:"pending"`
+	OldestPendingAt         *time.Time `json:"oldest_pending_at,omitempty"`
+	OldestPendingAgeSeconds int64      `json:"oldest_pending_age_seconds"`
+}
+type JobFailure struct {
+	VersionID   string    `json:"version_id"`
+	State       string    `json:"state"`
+	Generation  int64     `json:"generation"`
+	Attempts    int       `json:"attempts"`
+	ErrorCode   string    `json:"error_code"`
+	AvailableAt time.Time `json:"available_at"`
+}
+type Operations struct {
+	GeneratedAt        time.Time    `json:"generated_at"`
+	Jobs               JobTotals    `json:"jobs"`
+	Outbox             OutboxStatus `json:"outbox"`
+	Failures           []JobFailure `json:"failures"`
+	FailuresNextCursor string       `json:"failures_next_cursor"`
+}
+type RetryJobRequest struct {
+	Generation int64 `json:"generation"`
+}
+type PruneRequest struct {
+	Limit int `json:"limit"`
+}
+type PruneResult struct {
+	DeletedReplays int64 `json:"deleted_replays"`
+	DeletedEvents  int64 `json:"deleted_events"`
+}
 type Job struct {
 	VersionID               string
 	State                   string
@@ -359,6 +414,10 @@ type Transaction interface {
 	SaveReplay(Replay) error
 	Job(string) (Job, error)
 	SaveJob(Job) error
+	JobTotals(time.Time) (JobTotals, error)
+	FailedJobs(int, string) ([]Job, error)
+	OutboxStatus(time.Time) (OutboxStatus, error)
+	PruneHistory(time.Time, time.Time, int) (PruneResult, error)
 	Event(Event) error
 }
 
