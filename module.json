@@ -36,7 +36,8 @@
       "integration_test.go#TestManifestUsesOneSnapshot"
     ],
     "MEDIA-09": [
-      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission"
+      "archive_test.go#TestFileListOwnerCursorAndCurrentPermission",
+      "integration_test.go#TestMetadataReadsUseCommittedSnapshotsDuringWriteLock"
     ],
     "MEDIA-10": [
       "archive_test.go#TestQuarantinedReviewDownloadRequiresSeparateCurrentPermission"

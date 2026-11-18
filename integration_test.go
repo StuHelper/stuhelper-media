@@ -592,6 +592,12 @@ func TestManifestUsesOneSnapshot(t *testing.T) {
 	if r.txs > 1 || len(manifest.Entries) != 2 || manifest.Entries[1].ReferenceID != ids[1] {
 		t.Fatal(r.txs, manifest)
 	}
+	r.txs = 0
+	var archive bytes.Buffer
+	must(t, s.Archive(h.ctx, user, ids, &archive))
+	if r.txs != 2+2*len(ids) || archive.Len() == 0 {
+		t.Fatal("archive media transactions", r.txs)
+	}
 }
 func TestMetadataReadsUseCommittedSnapshotsDuringWriteLock(t *testing.T) {
 	h := newFixture(t)
