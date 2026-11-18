@@ -251,7 +251,11 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Problem: {
-            code: string;
+            code: components["schemas"]["ProblemCode"];
+            /** Format: int64 */
+            limit?: number;
+            /** Format: int64 */
+            retry_after_seconds?: number;
         };
         Version: {
             id: string;
@@ -266,7 +270,7 @@ export interface components {
             /** Format: int64 */
             size: number;
             sha256: string;
-            state: string;
+            state: components["schemas"]["VersionState"];
             approved: boolean;
             /** Format: date-time */
             upload_expires_at: string;
@@ -274,7 +278,7 @@ export interface components {
             retain_until: string;
             /** @description This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish. */
             cleanup_complete: boolean;
-            error_code: string;
+            error_code: components["schemas"]["VersionErrorCode"];
             /** @description True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes. */
             reused?: boolean;
         };
@@ -291,7 +295,7 @@ export interface components {
             /** Format: int64 */
             size: number;
             sha256: string;
-            state: string;
+            state: components["schemas"]["VersionState"];
             approved: boolean;
             /** Format: date-time */
             upload_expires_at: string;
@@ -299,8 +303,8 @@ export interface components {
             retain_until: string;
             /** @description This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish. */
             cleanup_complete: boolean;
-            error_code: string;
-            storage_state: string;
+            error_code: components["schemas"]["VersionErrorCode"];
+            storage_state: components["schemas"]["StorageState"];
             /** Format: int64 */
             healthy: number;
             /** Format: int64 */
@@ -325,7 +329,7 @@ export interface components {
             version_id: string;
             module: string;
             resource_id: string;
-            state: string;
+            state: components["schemas"]["ReferenceState"];
             /** Format: int64 */
             revision: number;
         };
@@ -384,11 +388,31 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        /** @enum {string} */
+        VersionState: "created" | "uploading" | "verifying" | "awaiting_approval" | "approved" | "ready" | "cancelled" | "expired" | "rejected" | "deleting" | "deleted";
+        /** @enum {string} */
+        ReferenceState: "pending" | "publishing" | "active" | "released";
+        /** @enum {string} */
+        StorageState: "" | "pending" | "ready" | "degraded" | "unavailable" | "deleting" | "deleted";
+        /** @enum {string} */
+        VersionErrorCode: "" | "media_integrity_failed" | "media_content_type_rejected" | "media_upload_expired" | "media_upload_result_unconfirmed" | "media_unavailable" | "media_permission_denied" | "media_conflict" | "media_capacity_unavailable" | "media_transfer_busy";
+        /** @enum {string} */
+        ProblemCode: "authentication_required" | "media_invalid_input" | "media_filename_invalid" | "media_type_not_allowed" | "media_permission_denied" | "media_not_found" | "media_conflict" | "media_upload_expired" | "media_upload_too_large" | "media_archive_too_large" | "media_integrity_failed" | "media_content_type_rejected" | "media_open_uploads_limit" | "media_file_limit_exceeded" | "media_version_limit_exceeded" | "media_reference_limit_exceeded" | "media_transfer_busy" | "media_capacity_unavailable" | "media_unavailable" | "method_not_allowed";
     };
     responses: {
         /** @description Sanitized failure */
         SanitizedFailure: {
             headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Sanitized failure */
+        RetryableFailure: {
+            headers: {
+                "Retry-After"?: string;
                 [name: string]: unknown;
             };
             content: {
@@ -435,7 +459,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     GetUpload: {
@@ -466,7 +491,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     CancelUpload: {
@@ -499,7 +525,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     UploadContent: {
@@ -536,7 +563,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     GetFile: {
@@ -567,7 +595,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     DeleteFile: {
@@ -604,7 +633,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     SetFileState: {
@@ -641,7 +671,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     GetVersion: {
@@ -672,7 +703,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     ApproveVersion: {
@@ -705,7 +737,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     AttachReference: {
@@ -742,7 +775,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     GetReference: {
@@ -773,7 +807,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     ReleaseReference: {
@@ -806,7 +841,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     PublishReference: {
@@ -839,7 +875,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     DownloadReference: {
@@ -870,7 +907,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     ListFiles: {
@@ -902,7 +940,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     ArchiveManifest: {
@@ -935,7 +974,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     DownloadArchive: {
@@ -968,7 +1008,8 @@ export interface operations {
             410: components["responses"]["SanitizedFailure"];
             413: components["responses"]["SanitizedFailure"];
             422: components["responses"]["SanitizedFailure"];
-            503: components["responses"]["SanitizedFailure"];
+            429: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["RetryableFailure"];
         };
     };
     DownloadReviewContent: {
@@ -991,87 +1032,15 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description Sanitized failure */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Sanitized failure */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
+            400: components["responses"]["SanitizedFailure"];
+            401: components["responses"]["SanitizedFailure"];
+            403: components["responses"]["SanitizedFailure"];
+            404: components["responses"]["SanitizedFailure"];
+            409: components["responses"]["SanitizedFailure"];
+            410: components["responses"]["SanitizedFailure"];
+            413: components["responses"]["SanitizedFailure"];
+            422: components["responses"]["SanitizedFailure"];
+            503: components["responses"]["SanitizedFailure"];
         };
     };
 }

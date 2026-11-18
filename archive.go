@@ -95,7 +95,7 @@ func (s *Service) ArchiveManifest(ctx context.Context, p Principal, ids []string
 			return ArchiveManifest{}, e
 		}
 		if v.Size > s.cfg.MaxArchiveBytes-out.TotalSize {
-			return ArchiveManifest{}, ErrCapacity
+			return ArchiveManifest{}, withLimit(ErrArchiveTooLarge, s.cfg.MaxArchiveBytes)
 		}
 		name := v.Filename
 		if !validFilename(name) {

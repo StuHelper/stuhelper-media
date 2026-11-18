@@ -102,7 +102,7 @@ func (s *Service) begin(ctx context.Context) (context.Context, func(), error) {
 		return work, func() { <-s.slots; done() }, nil
 	default:
 		done()
-		return nil, nil, ErrCapacity
+		return nil, nil, withLimit(ErrTransferBusy, int64(s.cfg.ParallelTransfers))
 	}
 }
 func (s *Service) authorize(ctx context.Context, p Principal, action string, a Access) error {
@@ -269,11 +269,17 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 	defer finish()
 	var out Version
 	profile, ok := s.cfg.Profiles[r.Purpose]
-	if !ok || !validFilename(r.Filename) || !slices.Contains(profile.AllowedTypes, r.ContentType) || r.Size < 1 || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
+	if !ok || r.Size < 1 || !digest.MatchString(r.SHA256) || (r.FileID != "" && !idOK(r.FileID)) {
 		return out, ErrInput
 	}
+	if !validFilename(r.Filename) {
+		return out, ErrFilenameInvalid
+	}
+	if !slices.Contains(profile.AllowedTypes, r.ContentType) {
+		return out, ErrTypeNotAllowed
+	}
 	if r.Size > profile.MaxSize {
-		return out, ErrTooLarge
+		return out, withLimit(ErrUploadTooLarge, profile.MaxSize)
 	}
 	var candidate Version
 	created := false
@@ -317,14 +323,17 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 		if e != nil {
 			return nil, e
 		}
-		if open >= s.cfg.MaxOpenUploads || (r.FileID == "" && files >= s.cfg.MaxFilesPerOwner) {
-			return nil, ErrCapacity
+		if open >= s.cfg.MaxOpenUploads {
+			return nil, withLimit(ErrOpenUploadsLimit, int64(s.cfg.MaxOpenUploads))
+		}
+		if r.FileID == "" && files >= s.cfg.MaxFilesPerOwner {
+			return nil, withLimit(ErrFileLimit, int64(s.cfg.MaxFilesPerOwner))
 		}
 		if r.FileID == "" {
 			f = File{ID: newID(), Owner: p, Purpose: r.Purpose, Revision: 1, CreatedAt: s.now()}
 		}
 		if f.NextVersion >= s.cfg.MaxVersions {
-			return nil, ErrCapacity
+			return nil, withLimit(ErrVersionLimit, int64(s.cfg.MaxVersions))
 		}
 		f.NextVersion++
 		f.Revision++

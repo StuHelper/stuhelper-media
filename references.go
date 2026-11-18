@@ -47,7 +47,7 @@ func (s *Service) Attach(ctx context.Context, p Principal, id, key string, b Bin
 			return nil, err
 		}
 		if liveReferences(v) >= s.cfg.MaxReferences {
-			return nil, ErrCapacity
+			return nil, withLimit(ErrReferenceLimit, int64(s.cfg.MaxReferences))
 		}
 		// Released bindings stay addressable in media.references. Keep only live
 		// bindings in the version snapshot used by subsequent writes.

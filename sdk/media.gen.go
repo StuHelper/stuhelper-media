@@ -20,6 +20,222 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ProblemCode.
+const (
+	ProblemCodeAuthenticationRequired      ProblemCode = "authentication_required"
+	ProblemCodeMediaArchiveTooLarge        ProblemCode = "media_archive_too_large"
+	ProblemCodeMediaCapacityUnavailable    ProblemCode = "media_capacity_unavailable"
+	ProblemCodeMediaConflict               ProblemCode = "media_conflict"
+	ProblemCodeMediaContentTypeRejected    ProblemCode = "media_content_type_rejected"
+	ProblemCodeMediaFileLimitExceeded      ProblemCode = "media_file_limit_exceeded"
+	ProblemCodeMediaFilenameInvalid        ProblemCode = "media_filename_invalid"
+	ProblemCodeMediaIntegrityFailed        ProblemCode = "media_integrity_failed"
+	ProblemCodeMediaInvalidInput           ProblemCode = "media_invalid_input"
+	ProblemCodeMediaNotFound               ProblemCode = "media_not_found"
+	ProblemCodeMediaOpenUploadsLimit       ProblemCode = "media_open_uploads_limit"
+	ProblemCodeMediaPermissionDenied       ProblemCode = "media_permission_denied"
+	ProblemCodeMediaReferenceLimitExceeded ProblemCode = "media_reference_limit_exceeded"
+	ProblemCodeMediaTransferBusy           ProblemCode = "media_transfer_busy"
+	ProblemCodeMediaTypeNotAllowed         ProblemCode = "media_type_not_allowed"
+	ProblemCodeMediaUnavailable            ProblemCode = "media_unavailable"
+	ProblemCodeMediaUploadExpired          ProblemCode = "media_upload_expired"
+	ProblemCodeMediaUploadTooLarge         ProblemCode = "media_upload_too_large"
+	ProblemCodeMediaVersionLimitExceeded   ProblemCode = "media_version_limit_exceeded"
+	ProblemCodeMethodNotAllowed            ProblemCode = "method_not_allowed"
+)
+
+// Valid indicates whether the value is a known member of the ProblemCode enum.
+func (e ProblemCode) Valid() bool {
+	switch e {
+	case ProblemCodeAuthenticationRequired:
+		return true
+	case ProblemCodeMediaArchiveTooLarge:
+		return true
+	case ProblemCodeMediaCapacityUnavailable:
+		return true
+	case ProblemCodeMediaConflict:
+		return true
+	case ProblemCodeMediaContentTypeRejected:
+		return true
+	case ProblemCodeMediaFileLimitExceeded:
+		return true
+	case ProblemCodeMediaFilenameInvalid:
+		return true
+	case ProblemCodeMediaIntegrityFailed:
+		return true
+	case ProblemCodeMediaInvalidInput:
+		return true
+	case ProblemCodeMediaNotFound:
+		return true
+	case ProblemCodeMediaOpenUploadsLimit:
+		return true
+	case ProblemCodeMediaPermissionDenied:
+		return true
+	case ProblemCodeMediaReferenceLimitExceeded:
+		return true
+	case ProblemCodeMediaTransferBusy:
+		return true
+	case ProblemCodeMediaTypeNotAllowed:
+		return true
+	case ProblemCodeMediaUnavailable:
+		return true
+	case ProblemCodeMediaUploadExpired:
+		return true
+	case ProblemCodeMediaUploadTooLarge:
+		return true
+	case ProblemCodeMediaVersionLimitExceeded:
+		return true
+	case ProblemCodeMethodNotAllowed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReferenceState.
+const (
+	ReferenceStateActive     ReferenceState = "active"
+	ReferenceStatePending    ReferenceState = "pending"
+	ReferenceStatePublishing ReferenceState = "publishing"
+	ReferenceStateReleased   ReferenceState = "released"
+)
+
+// Valid indicates whether the value is a known member of the ReferenceState enum.
+func (e ReferenceState) Valid() bool {
+	switch e {
+	case ReferenceStateActive:
+		return true
+	case ReferenceStatePending:
+		return true
+	case ReferenceStatePublishing:
+		return true
+	case ReferenceStateReleased:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for StorageState.
+const (
+	StorageStateDegraded    StorageState = "degraded"
+	StorageStateDeleted     StorageState = "deleted"
+	StorageStateDeleting    StorageState = "deleting"
+	StorageStateEmpty       StorageState = ""
+	StorageStatePending     StorageState = "pending"
+	StorageStateReady       StorageState = "ready"
+	StorageStateUnavailable StorageState = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the StorageState enum.
+func (e StorageState) Valid() bool {
+	switch e {
+	case StorageStateDegraded:
+		return true
+	case StorageStateDeleted:
+		return true
+	case StorageStateDeleting:
+		return true
+	case StorageStateEmpty:
+		return true
+	case StorageStatePending:
+		return true
+	case StorageStateReady:
+		return true
+	case StorageStateUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VersionErrorCode.
+const (
+	VersionErrorCodeEmpty                        VersionErrorCode = ""
+	VersionErrorCodeMediaCapacityUnavailable     VersionErrorCode = "media_capacity_unavailable"
+	VersionErrorCodeMediaConflict                VersionErrorCode = "media_conflict"
+	VersionErrorCodeMediaContentTypeRejected     VersionErrorCode = "media_content_type_rejected"
+	VersionErrorCodeMediaIntegrityFailed         VersionErrorCode = "media_integrity_failed"
+	VersionErrorCodeMediaPermissionDenied        VersionErrorCode = "media_permission_denied"
+	VersionErrorCodeMediaTransferBusy            VersionErrorCode = "media_transfer_busy"
+	VersionErrorCodeMediaUnavailable             VersionErrorCode = "media_unavailable"
+	VersionErrorCodeMediaUploadExpired           VersionErrorCode = "media_upload_expired"
+	VersionErrorCodeMediaUploadResultUnconfirmed VersionErrorCode = "media_upload_result_unconfirmed"
+)
+
+// Valid indicates whether the value is a known member of the VersionErrorCode enum.
+func (e VersionErrorCode) Valid() bool {
+	switch e {
+	case VersionErrorCodeEmpty:
+		return true
+	case VersionErrorCodeMediaCapacityUnavailable:
+		return true
+	case VersionErrorCodeMediaConflict:
+		return true
+	case VersionErrorCodeMediaContentTypeRejected:
+		return true
+	case VersionErrorCodeMediaIntegrityFailed:
+		return true
+	case VersionErrorCodeMediaPermissionDenied:
+		return true
+	case VersionErrorCodeMediaTransferBusy:
+		return true
+	case VersionErrorCodeMediaUnavailable:
+		return true
+	case VersionErrorCodeMediaUploadExpired:
+		return true
+	case VersionErrorCodeMediaUploadResultUnconfirmed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VersionState.
+const (
+	VersionStateApproved         VersionState = "approved"
+	VersionStateAwaitingApproval VersionState = "awaiting_approval"
+	VersionStateCancelled        VersionState = "cancelled"
+	VersionStateCreated          VersionState = "created"
+	VersionStateDeleted          VersionState = "deleted"
+	VersionStateDeleting         VersionState = "deleting"
+	VersionStateExpired          VersionState = "expired"
+	VersionStateReady            VersionState = "ready"
+	VersionStateRejected         VersionState = "rejected"
+	VersionStateUploading        VersionState = "uploading"
+	VersionStateVerifying        VersionState = "verifying"
+)
+
+// Valid indicates whether the value is a known member of the VersionState enum.
+func (e VersionState) Valid() bool {
+	switch e {
+	case VersionStateApproved:
+		return true
+	case VersionStateAwaitingApproval:
+		return true
+	case VersionStateCancelled:
+		return true
+	case VersionStateCreated:
+		return true
+	case VersionStateDeleted:
+		return true
+	case VersionStateDeleting:
+		return true
+	case VersionStateExpired:
+		return true
+	case VersionStateReady:
+		return true
+	case VersionStateRejected:
+		return true
+	case VersionStateUploading:
+		return true
+	case VersionStateVerifying:
+		return true
+	default:
+		return false
+	}
+}
+
 // ArchiveEntry defines model for ArchiveEntry.
 type ArchiveEntry struct {
 	Filename    string `json:"filename"`
@@ -82,24 +298,35 @@ type FileView struct {
 
 // Problem defines model for Problem.
 type Problem struct {
-	Code string `json:"code"`
+	Code              ProblemCode `json:"code"`
+	Limit             *int64      `json:"limit,omitempty"`
+	RetryAfterSeconds *int64      `json:"retry_after_seconds,omitempty"`
 }
+
+// ProblemCode defines model for ProblemCode.
+type ProblemCode string
 
 // Reference defines model for Reference.
 type Reference struct {
-	FileId     string `json:"file_id"`
-	Id         string `json:"id"`
-	Module     string `json:"module"`
-	ResourceId string `json:"resource_id"`
-	Revision   int64  `json:"revision"`
-	State      string `json:"state"`
-	VersionId  string `json:"version_id"`
+	FileId     string         `json:"file_id"`
+	Id         string         `json:"id"`
+	Module     string         `json:"module"`
+	ResourceId string         `json:"resource_id"`
+	Revision   int64          `json:"revision"`
+	State      ReferenceState `json:"state"`
+	VersionId  string         `json:"version_id"`
 }
+
+// ReferenceState defines model for ReferenceState.
+type ReferenceState string
 
 // Revision defines model for Revision.
 type Revision struct {
 	Revision int64 `json:"revision"`
 }
+
+// StorageState defines model for StorageState.
+type StorageState string
 
 // UploadRequest defines model for UploadRequest.
 type UploadRequest struct {
@@ -119,51 +346,60 @@ type Version struct {
 	Approved bool `json:"approved"`
 
 	// CleanupComplete This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish.
-	CleanupComplete bool      `json:"cleanup_complete"`
-	ContentType     string    `json:"content_type"`
-	ErrorCode       string    `json:"error_code"`
-	FileId          string    `json:"file_id"`
-	Filename        string    `json:"filename"`
-	Id              string    `json:"id"`
-	Number          int64     `json:"number"`
-	RetainUntil     time.Time `json:"retain_until"`
+	CleanupComplete bool             `json:"cleanup_complete"`
+	ContentType     string           `json:"content_type"`
+	ErrorCode       VersionErrorCode `json:"error_code"`
+	FileId          string           `json:"file_id"`
+	Filename        string           `json:"filename"`
+	Id              string           `json:"id"`
+	Number          int64            `json:"number"`
+	RetainUntil     time.Time        `json:"retain_until"`
 
 	// Reused True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes.
-	Reused          *bool     `json:"reused,omitempty"`
-	Revision        int64     `json:"revision"`
-	Sha256          string    `json:"sha256"`
-	Size            int64     `json:"size"`
-	State           string    `json:"state"`
-	UploadExpiresAt time.Time `json:"upload_expires_at"`
-	UploadId        string    `json:"upload_id"`
+	Reused          *bool        `json:"reused,omitempty"`
+	Revision        int64        `json:"revision"`
+	Sha256          string       `json:"sha256"`
+	Size            int64        `json:"size"`
+	State           VersionState `json:"state"`
+	UploadExpiresAt time.Time    `json:"upload_expires_at"`
+	UploadId        string       `json:"upload_id"`
 }
+
+// VersionErrorCode defines model for VersionErrorCode.
+type VersionErrorCode string
+
+// VersionState defines model for VersionState.
+type VersionState string
 
 // VersionView defines model for VersionView.
 type VersionView struct {
 	Approved bool `json:"approved"`
 
 	// CleanupComplete This version has released its storage handle. Shared bytes remain while other handles use them. If this is the final handle, true requires physical cleanup to finish.
-	CleanupComplete bool      `json:"cleanup_complete"`
-	ContentType     string    `json:"content_type"`
-	Desired         int64     `json:"desired"`
-	ErrorCode       string    `json:"error_code"`
-	FileId          string    `json:"file_id"`
-	Filename        string    `json:"filename"`
-	Healthy         int64     `json:"healthy"`
-	Id              string    `json:"id"`
-	Number          int64     `json:"number"`
-	RetainUntil     time.Time `json:"retain_until"`
+	CleanupComplete bool             `json:"cleanup_complete"`
+	ContentType     string           `json:"content_type"`
+	Desired         int64            `json:"desired"`
+	ErrorCode       VersionErrorCode `json:"error_code"`
+	FileId          string           `json:"file_id"`
+	Filename        string           `json:"filename"`
+	Healthy         int64            `json:"healthy"`
+	Id              string           `json:"id"`
+	Number          int64            `json:"number"`
+	RetainUntil     time.Time        `json:"retain_until"`
 
 	// Reused True when this independent version uses a verified prior upload without sending client file bytes. It still requires its own business approval. While verifying, query the upload status and do not send file bytes.
-	Reused          *bool     `json:"reused,omitempty"`
-	Revision        int64     `json:"revision"`
-	Sha256          string    `json:"sha256"`
-	Size            int64     `json:"size"`
-	State           string    `json:"state"`
-	StorageState    string    `json:"storage_state"`
-	UploadExpiresAt time.Time `json:"upload_expires_at"`
-	UploadId        string    `json:"upload_id"`
+	Reused          *bool        `json:"reused,omitempty"`
+	Revision        int64        `json:"revision"`
+	Sha256          string       `json:"sha256"`
+	Size            int64        `json:"size"`
+	State           VersionState `json:"state"`
+	StorageState    StorageState `json:"storage_state"`
+	UploadExpiresAt time.Time    `json:"upload_expires_at"`
+	UploadId        string       `json:"upload_id"`
 }
+
+// RetryableFailure defines model for RetryableFailure.
+type RetryableFailure = Problem
 
 // SanitizedFailure defines model for SanitizedFailure.
 type SanitizedFailure = Problem
@@ -1720,6 +1956,11 @@ type ClientWithResponsesInterface interface {
 	DownloadReviewContentWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DownloadReviewContentResponse, error)
 }
 
+// DownloadArchiveResponse503Headers the declared response headers of an HTTP 503 response for DownloadArchive
+type DownloadArchiveResponse503Headers struct {
+	RetryAfter *string
+}
+
 type DownloadArchiveResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1739,8 +1980,12 @@ type DownloadArchiveResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *DownloadArchiveResponse503Headers
 }
 
 // GetJSON400 returns the response for an HTTP 400 `application/json` response
@@ -1783,8 +2028,13 @@ func (r DownloadArchiveResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r DownloadArchiveResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r DownloadArchiveResponse) GetJSON503() *SanitizedFailure {
+func (r DownloadArchiveResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -1817,6 +2067,11 @@ func (r DownloadArchiveResponse) ContentType() string {
 	return ""
 }
 
+// ArchiveManifestResponse503Headers the declared response headers of an HTTP 503 response for ArchiveManifest
+type ArchiveManifestResponse503Headers struct {
+	RetryAfter *string
+}
+
 type ArchiveManifestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1838,8 +2093,12 @@ type ArchiveManifestResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *ArchiveManifestResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1887,8 +2146,13 @@ func (r ArchiveManifestResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ArchiveManifestResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r ArchiveManifestResponse) GetJSON503() *SanitizedFailure {
+func (r ArchiveManifestResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -1921,6 +2185,11 @@ func (r ArchiveManifestResponse) ContentType() string {
 	return ""
 }
 
+// ListFilesResponse503Headers the declared response headers of an HTTP 503 response for ListFiles
+type ListFilesResponse503Headers struct {
+	RetryAfter *string
+}
+
 type ListFilesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1942,8 +2211,12 @@ type ListFilesResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *ListFilesResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1991,8 +2264,13 @@ func (r ListFilesResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ListFilesResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r ListFilesResponse) GetJSON503() *SanitizedFailure {
+func (r ListFilesResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2025,6 +2303,11 @@ func (r ListFilesResponse) ContentType() string {
 	return ""
 }
 
+// DeleteFileResponse503Headers the declared response headers of an HTTP 503 response for DeleteFile
+type DeleteFileResponse503Headers struct {
+	RetryAfter *string
+}
+
 type DeleteFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2046,8 +2329,12 @@ type DeleteFileResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *DeleteFileResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2095,8 +2382,13 @@ func (r DeleteFileResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r DeleteFileResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r DeleteFileResponse) GetJSON503() *SanitizedFailure {
+func (r DeleteFileResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2129,6 +2421,11 @@ func (r DeleteFileResponse) ContentType() string {
 	return ""
 }
 
+// GetFileResponse503Headers the declared response headers of an HTTP 503 response for GetFile
+type GetFileResponse503Headers struct {
+	RetryAfter *string
+}
+
 type GetFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2150,8 +2447,12 @@ type GetFileResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *GetFileResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2199,8 +2500,13 @@ func (r GetFileResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r GetFileResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r GetFileResponse) GetJSON503() *SanitizedFailure {
+func (r GetFileResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2233,6 +2539,11 @@ func (r GetFileResponse) ContentType() string {
 	return ""
 }
 
+// SetFileStateResponse503Headers the declared response headers of an HTTP 503 response for SetFileState
+type SetFileStateResponse503Headers struct {
+	RetryAfter *string
+}
+
 type SetFileStateResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2254,8 +2565,12 @@ type SetFileStateResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *SetFileStateResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2303,8 +2618,13 @@ func (r SetFileStateResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r SetFileStateResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r SetFileStateResponse) GetJSON503() *SanitizedFailure {
+func (r SetFileStateResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2337,6 +2657,11 @@ func (r SetFileStateResponse) ContentType() string {
 	return ""
 }
 
+// ReleaseReferenceResponse503Headers the declared response headers of an HTTP 503 response for ReleaseReference
+type ReleaseReferenceResponse503Headers struct {
+	RetryAfter *string
+}
+
 type ReleaseReferenceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2358,8 +2683,12 @@ type ReleaseReferenceResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *ReleaseReferenceResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2407,8 +2736,13 @@ func (r ReleaseReferenceResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ReleaseReferenceResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r ReleaseReferenceResponse) GetJSON503() *SanitizedFailure {
+func (r ReleaseReferenceResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2441,6 +2775,11 @@ func (r ReleaseReferenceResponse) ContentType() string {
 	return ""
 }
 
+// GetReferenceResponse503Headers the declared response headers of an HTTP 503 response for GetReference
+type GetReferenceResponse503Headers struct {
+	RetryAfter *string
+}
+
 type GetReferenceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2462,8 +2801,12 @@ type GetReferenceResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *GetReferenceResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2511,8 +2854,13 @@ func (r GetReferenceResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r GetReferenceResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r GetReferenceResponse) GetJSON503() *SanitizedFailure {
+func (r GetReferenceResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2545,6 +2893,11 @@ func (r GetReferenceResponse) ContentType() string {
 	return ""
 }
 
+// DownloadReferenceResponse503Headers the declared response headers of an HTTP 503 response for DownloadReference
+type DownloadReferenceResponse503Headers struct {
+	RetryAfter *string
+}
+
 type DownloadReferenceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2564,8 +2917,12 @@ type DownloadReferenceResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *DownloadReferenceResponse503Headers
 }
 
 // GetJSON400 returns the response for an HTTP 400 `application/json` response
@@ -2608,8 +2965,13 @@ func (r DownloadReferenceResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r DownloadReferenceResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r DownloadReferenceResponse) GetJSON503() *SanitizedFailure {
+func (r DownloadReferenceResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2642,6 +3004,11 @@ func (r DownloadReferenceResponse) ContentType() string {
 	return ""
 }
 
+// PublishReferenceResponse503Headers the declared response headers of an HTTP 503 response for PublishReference
+type PublishReferenceResponse503Headers struct {
+	RetryAfter *string
+}
+
 type PublishReferenceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2663,8 +3030,12 @@ type PublishReferenceResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *PublishReferenceResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2712,8 +3083,13 @@ func (r PublishReferenceResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r PublishReferenceResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r PublishReferenceResponse) GetJSON503() *SanitizedFailure {
+func (r PublishReferenceResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2746,6 +3122,11 @@ func (r PublishReferenceResponse) ContentType() string {
 	return ""
 }
 
+// CreateUploadResponse503Headers the declared response headers of an HTTP 503 response for CreateUpload
+type CreateUploadResponse503Headers struct {
+	RetryAfter *string
+}
+
 type CreateUploadResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2767,8 +3148,12 @@ type CreateUploadResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *CreateUploadResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2816,8 +3201,13 @@ func (r CreateUploadResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r CreateUploadResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r CreateUploadResponse) GetJSON503() *SanitizedFailure {
+func (r CreateUploadResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2850,6 +3240,11 @@ func (r CreateUploadResponse) ContentType() string {
 	return ""
 }
 
+// CancelUploadResponse503Headers the declared response headers of an HTTP 503 response for CancelUpload
+type CancelUploadResponse503Headers struct {
+	RetryAfter *string
+}
+
 type CancelUploadResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2871,8 +3266,12 @@ type CancelUploadResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *CancelUploadResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2920,8 +3319,13 @@ func (r CancelUploadResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r CancelUploadResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r CancelUploadResponse) GetJSON503() *SanitizedFailure {
+func (r CancelUploadResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -2954,6 +3358,11 @@ func (r CancelUploadResponse) ContentType() string {
 	return ""
 }
 
+// GetUploadResponse503Headers the declared response headers of an HTTP 503 response for GetUpload
+type GetUploadResponse503Headers struct {
+	RetryAfter *string
+}
+
 type GetUploadResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2975,8 +3384,12 @@ type GetUploadResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *GetUploadResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3024,8 +3437,13 @@ func (r GetUploadResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r GetUploadResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r GetUploadResponse) GetJSON503() *SanitizedFailure {
+func (r GetUploadResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -3058,6 +3476,11 @@ func (r GetUploadResponse) ContentType() string {
 	return ""
 }
 
+// UploadContentResponse503Headers the declared response headers of an HTTP 503 response for UploadContent
+type UploadContentResponse503Headers struct {
+	RetryAfter *string
+}
+
 type UploadContentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3079,8 +3502,12 @@ type UploadContentResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *UploadContentResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3128,8 +3555,13 @@ func (r UploadContentResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r UploadContentResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r UploadContentResponse) GetJSON503() *SanitizedFailure {
+func (r UploadContentResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -3162,6 +3594,11 @@ func (r UploadContentResponse) ContentType() string {
 	return ""
 }
 
+// GetVersionResponse503Headers the declared response headers of an HTTP 503 response for GetVersion
+type GetVersionResponse503Headers struct {
+	RetryAfter *string
+}
+
 type GetVersionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3183,8 +3620,12 @@ type GetVersionResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *GetVersionResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3232,8 +3673,13 @@ func (r GetVersionResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r GetVersionResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r GetVersionResponse) GetJSON503() *SanitizedFailure {
+func (r GetVersionResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -3266,6 +3712,11 @@ func (r GetVersionResponse) ContentType() string {
 	return ""
 }
 
+// ApproveVersionResponse503Headers the declared response headers of an HTTP 503 response for ApproveVersion
+type ApproveVersionResponse503Headers struct {
+	RetryAfter *string
+}
+
 type ApproveVersionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3287,8 +3738,12 @@ type ApproveVersionResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *ApproveVersionResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3336,8 +3791,13 @@ func (r ApproveVersionResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ApproveVersionResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r ApproveVersionResponse) GetJSON503() *SanitizedFailure {
+func (r ApproveVersionResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -3370,6 +3830,11 @@ func (r ApproveVersionResponse) ContentType() string {
 	return ""
 }
 
+// AttachReferenceResponse503Headers the declared response headers of an HTTP 503 response for AttachReference
+type AttachReferenceResponse503Headers struct {
+	RetryAfter *string
+}
+
 type AttachReferenceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3391,8 +3856,12 @@ type AttachReferenceResponse struct {
 	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *SanitizedFailure
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *SanitizedFailure
+	JSON503 *RetryableFailure
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *AttachReferenceResponse503Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3440,8 +3909,13 @@ func (r AttachReferenceResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r AttachReferenceResponse) GetJSON429() *SanitizedFailure {
+	return r.JSON429
+}
+
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r AttachReferenceResponse) GetJSON503() *SanitizedFailure {
+func (r AttachReferenceResponse) GetJSON503() *RetryableFailure {
 	return r.JSON503
 }
 
@@ -3478,67 +3952,67 @@ type DownloadReviewContentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON400 the response for an HTTP 400 `application/json` response
-	JSON400 *Problem
+	JSON400 *SanitizedFailure
 	// JSON401 the response for an HTTP 401 `application/json` response
-	JSON401 *Problem
+	JSON401 *SanitizedFailure
 	// JSON403 the response for an HTTP 403 `application/json` response
-	JSON403 *Problem
+	JSON403 *SanitizedFailure
 	// JSON404 the response for an HTTP 404 `application/json` response
-	JSON404 *Problem
+	JSON404 *SanitizedFailure
 	// JSON409 the response for an HTTP 409 `application/json` response
-	JSON409 *Problem
+	JSON409 *SanitizedFailure
 	// JSON410 the response for an HTTP 410 `application/json` response
-	JSON410 *Problem
+	JSON410 *SanitizedFailure
 	// JSON413 the response for an HTTP 413 `application/json` response
-	JSON413 *Problem
+	JSON413 *SanitizedFailure
 	// JSON422 the response for an HTTP 422 `application/json` response
-	JSON422 *Problem
+	JSON422 *SanitizedFailure
 	// JSON503 the response for an HTTP 503 `application/json` response
-	JSON503 *Problem
+	JSON503 *SanitizedFailure
 }
 
 // GetJSON400 returns the response for an HTTP 400 `application/json` response
-func (r DownloadReviewContentResponse) GetJSON400() *Problem {
+func (r DownloadReviewContentResponse) GetJSON400() *SanitizedFailure {
 	return r.JSON400
 }
 
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
-func (r DownloadReviewContentResponse) GetJSON401() *Problem {
+func (r DownloadReviewContentResponse) GetJSON401() *SanitizedFailure {
 	return r.JSON401
 }
 
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
-func (r DownloadReviewContentResponse) GetJSON403() *Problem {
+func (r DownloadReviewContentResponse) GetJSON403() *SanitizedFailure {
 	return r.JSON403
 }
 
 // GetJSON404 returns the response for an HTTP 404 `application/json` response
-func (r DownloadReviewContentResponse) GetJSON404() *Problem {
+func (r DownloadReviewContentResponse) GetJSON404() *SanitizedFailure {
 	return r.JSON404
 }
 
 // GetJSON409 returns the response for an HTTP 409 `application/json` response
-func (r DownloadReviewContentResponse) GetJSON409() *Problem {
+func (r DownloadReviewContentResponse) GetJSON409() *SanitizedFailure {
 	return r.JSON409
 }
 
 // GetJSON410 returns the response for an HTTP 410 `application/json` response
-func (r DownloadReviewContentResponse) GetJSON410() *Problem {
+func (r DownloadReviewContentResponse) GetJSON410() *SanitizedFailure {
 	return r.JSON410
 }
 
 // GetJSON413 returns the response for an HTTP 413 `application/json` response
-func (r DownloadReviewContentResponse) GetJSON413() *Problem {
+func (r DownloadReviewContentResponse) GetJSON413() *SanitizedFailure {
 	return r.JSON413
 }
 
 // GetJSON422 returns the response for an HTTP 422 `application/json` response
-func (r DownloadReviewContentResponse) GetJSON422() *Problem {
+func (r DownloadReviewContentResponse) GetJSON422() *SanitizedFailure {
 	return r.JSON422
 }
 
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
-func (r DownloadReviewContentResponse) GetJSON503() *Problem {
+func (r DownloadReviewContentResponse) GetJSON503() *SanitizedFailure {
 	return r.JSON503
 }
 
@@ -3910,13 +4384,33 @@ func ParseDownloadArchiveResponse(rsp *http.Response) (*DownloadArchiveResponse,
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers DownloadArchiveResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -3999,13 +4493,33 @@ func ParseArchiveManifestResponse(rsp *http.Response) (*ArchiveManifestResponse,
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers ArchiveManifestResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4088,13 +4602,33 @@ func ParseListFilesResponse(rsp *http.Response) (*ListFilesResponse, error) {
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers ListFilesResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4177,13 +4711,33 @@ func ParseDeleteFileResponse(rsp *http.Response) (*DeleteFileResponse, error) {
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers DeleteFileResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4266,13 +4820,33 @@ func ParseGetFileResponse(rsp *http.Response) (*GetFileResponse, error) {
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers GetFileResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4355,13 +4929,33 @@ func ParseSetFileStateResponse(rsp *http.Response) (*SetFileStateResponse, error
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers SetFileStateResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4444,13 +5038,33 @@ func ParseReleaseReferenceResponse(rsp *http.Response) (*ReleaseReferenceRespons
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers ReleaseReferenceResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4533,13 +5147,33 @@ func ParseGetReferenceResponse(rsp *http.Response) (*GetReferenceResponse, error
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers GetReferenceResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4615,13 +5249,33 @@ func ParseDownloadReferenceResponse(rsp *http.Response) (*DownloadReferenceRespo
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers DownloadReferenceResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4704,13 +5358,33 @@ func ParsePublishReferenceResponse(rsp *http.Response) (*PublishReferenceRespons
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers PublishReferenceResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4793,13 +5467,33 @@ func ParseCreateUploadResponse(rsp *http.Response) (*CreateUploadResponse, error
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers CreateUploadResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4882,13 +5576,33 @@ func ParseCancelUploadResponse(rsp *http.Response) (*CancelUploadResponse, error
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers CancelUploadResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -4971,13 +5685,33 @@ func ParseGetUploadResponse(rsp *http.Response) (*GetUploadResponse, error) {
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers GetUploadResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -5060,13 +5794,33 @@ func ParseUploadContentResponse(rsp *http.Response) (*UploadContentResponse, err
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers UploadContentResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -5149,13 +5903,33 @@ func ParseGetVersionResponse(rsp *http.Response) (*GetVersionResponse, error) {
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers GetVersionResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -5238,13 +6012,33 @@ func ParseApproveVersionResponse(rsp *http.Response) (*ApproveVersionResponse, e
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers ApproveVersionResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -5327,13 +6121,33 @@ func ParseAttachReferenceResponse(rsp *http.Response) (*AttachReferenceResponse,
 		}
 		response.JSON422 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest SanitizedFailure
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest RetryableFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 503:
+		var headers AttachReferenceResponse503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil
@@ -5354,63 +6168,63 @@ func ParseDownloadReviewContentResponse(rsp *http.Response) (*DownloadReviewCont
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Problem
+		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Problem
+		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Problem
+		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Problem
+		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Problem
+		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
-		var dest Problem
+		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON410 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
-		var dest Problem
+		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON413 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
-		var dest Problem
+		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON422 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Problem
+		var dest SanitizedFailure
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

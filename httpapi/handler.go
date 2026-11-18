@@ -91,7 +91,7 @@ func (m *authMux) HandleFunc(pattern string, next func(http.ResponseWriter, *htt
 		}
 		if r.ContentLength > limit {
 			w.Header().Set("Connection", "close")
-			problem(w, 413, "media_upload_too_large")
+			failure(w, &http.MaxBytesError{Limit: limit})
 			return
 		}
 		raw := r.Body
@@ -391,28 +391,69 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+type problemBody struct {
+	Code              string `json:"code"`
+	Limit             *int64 `json:"limit,omitempty"`
+	RetryAfterSeconds *int64 `json:"retry_after_seconds,omitempty"`
+}
+
 func problem(w http.ResponseWriter, status int, code string) {
-	writeJSON(w, status, map[string]string{"code": code})
+	writeJSON(w, status, problemBody{Code: code})
 }
 
 func failure(w http.ResponseWriter, e error) {
 	status, code := 503, media.ErrUnavailable.Error()
+	var retryAfter int64
 	for _, entry := range []struct {
-		e      error
-		status int
-	}{{media.ErrTooLarge, 413}, {media.ErrInput, 400}, {media.ErrDenied, 403}, {media.ErrNotFound, 404}, {media.ErrConflict, 409}, {media.ErrExpired, 410}, {media.ErrIntegrity, 422}, {media.ErrType, 422}, {media.ErrCapacity, 503}} {
+		e          error
+		status     int
+		retryAfter int64
+	}{
+		{media.ErrFilenameInvalid, 400, 0},
+		{media.ErrTypeNotAllowed, 400, 0},
+		{media.ErrUploadTooLarge, 413, 0},
+		{media.ErrInput, 400, 0},
+		{media.ErrDenied, 403, 0},
+		{media.ErrNotFound, 404, 0},
+		{media.ErrFileLimit, 409, 0},
+		{media.ErrVersionLimit, 409, 0},
+		{media.ErrReferenceLimit, 409, 0},
+		{media.ErrConflict, 409, 0},
+		{media.ErrExpired, 410, 0},
+		{media.ErrArchiveTooLarge, 413, 0},
+		{media.ErrIntegrity, 422, 0},
+		{media.ErrType, 422, 0},
+		{media.ErrOpenUploadsLimit, 429, 0},
+		{media.ErrTransferBusy, 503, 3},
+		{media.ErrCapacity, 503, 5},
+	} {
 		if errors.Is(e, entry.e) {
 			status = entry.status
 			code = entry.e.Error()
+			retryAfter = entry.retryAfter
 			break
 		}
 	}
-	var limit *http.MaxBytesError
-	if errors.As(e, &limit) {
-		status = 413
-		code = "media_upload_too_large"
+	out := problemBody{Code: code}
+	if limit, ok := media.ErrorLimit(e); ok {
+		out.Limit = &limit
 	}
-	problem(w, status, code)
+	var maxErr *http.MaxBytesError
+	if errors.As(e, &maxErr) {
+		status = 413
+		code = media.ErrUploadTooLarge.Error()
+		out.Code = code
+		if maxErr.Limit > 0 {
+			lim := maxErr.Limit
+			out.Limit = &lim
+		}
+		retryAfter = 0
+	}
+	if retryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.FormatInt(retryAfter, 10))
+		out.RetryAfterSeconds = &retryAfter
+	}
+	writeJSON(w, status, out)
 }
 
 type downloadWriter struct {
