@@ -22,7 +22,7 @@ make generate
 bash scripts/check-with-postgres.sh
 ```
 
-检查使用专用、仅本地 socket 的 PostgreSQL，结束清理数据库。普通测试使用供应商和业务授权夹具，不登录真实 BHpan。OpenAPI 先定义接口，再生成 Go 与 TypeScript SDK；生成一致性纳入检查。
+检查使用仅开放本地 socket 的临时 PostgreSQL 并在结束时清理，自动按 pg_config、PATH 与 dpkg-query 顺序探测二进制目录。普通测试使用夹具，不登录真实 BHpan。OpenAPI 先定义接口、状态枚举和细分错误码，再生成 Go 客户端与服务端接口及 TypeScript SDK。
 
 具体规则、资源上限和验收场景见[模块规格](docs/spec/media.md)。后台装配与界面由应用仓库负责；Next SSO、贡献激励、受限文件加密和阅读器不在本模块实现。
 
@@ -31,3 +31,5 @@ bash scripts/check-with-postgres.sh
 新文件使用 storage 共享内容引用，重复实际上传不会生成另一组同范围、同保护要求的物理副本。创建上传时启用 reuse_existing，可免传输本人相同用途、内容类型和内容标识的已完成文件。复用保留独立版本、文件名、审核及引用，仍检查当前来源权限。
 
 reused 为 true 且状态为 verifying 时，只查询原会话等待恢复。复用成功后新版本进入 awaiting_approval。跨用户仅提交摘要仍需实际上传；旧版对象继续保留原身份，重复执行迁移不会重写历史绑定。
+
+审核端使用 `GET /api/v1/media/versions/{id}/review-content` 读取已校验文件。服务端在返回字节前检查当前审核权限。上传超过用途、会话或网关的大小上限时，HTTP 接口返回 413。
