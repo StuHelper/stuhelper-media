@@ -25,7 +25,8 @@
     "MEDIA-04": [
       "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent",
       "integration_test.go#TestStaleUploadFinishCannotOverwriteApprovedOrPublishedVersion",
-      "integration_test.go#TestCleanupBackoffAndBlockedEvidence"
+      "integration_test.go#TestCleanupBackoffAndBlockedEvidence",
+      "integration_test.go#TestMetadataOperationDrainsOnClose"
     ],
     "MEDIA-05": [
       "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"

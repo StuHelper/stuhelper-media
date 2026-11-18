@@ -16,6 +16,11 @@ func (s *Service) ArchiveLimits() (files int, bytes int64) {
 }
 
 func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor string) (FilePage, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return FilePage{}, startErr
+	}
+	defer finish()
 	out := FilePage{Items: []File{}}
 	if limit < 1 || limit > 100 || (cursor != "" && !idOK(cursor)) {
 		return out, ErrInput
@@ -23,8 +28,6 @@ func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor 
 	if !p.Valid() {
 		return out, ErrDenied
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
-	defer cancel()
 	err := s.repo.Transaction(ctx, func(tx Transaction) error {
 		rows, e := tx.Files(p, limit, cursor)
 		if e != nil {
@@ -64,12 +67,15 @@ func (s *Service) ListFiles(ctx context.Context, p Principal, limit int, cursor 
 }
 
 func (s *Service) ArchiveManifest(ctx context.Context, p Principal, ids []string) (ArchiveManifest, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return ArchiveManifest{}, startErr
+	}
+	defer finish()
 	out := ArchiveManifest{Entries: []ArchiveEntry{}}
 	if len(ids) < 1 || len(ids) > s.cfg.MaxArchiveFiles {
 		return out, ErrInput
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
-	defer cancel()
 	seen := map[string]bool{}
 	for n, id := range ids {
 		if !idOK(id) || seen[id] {

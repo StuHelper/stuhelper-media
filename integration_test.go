@@ -781,3 +781,39 @@ func TestCleanupBackoffAndBlockedEvidence(t *testing.T) {
 		t.Fatal(count)
 	}
 }
+
+type waitingPolicy struct {
+	entered chan bool
+	release chan struct{}
+}
+
+func (p waitingPolicy) Authorize(ctx context.Context, _ media.Principal, _ string, _ media.Access) error {
+	_, ok := ctx.Deadline()
+	p.entered <- ok
+	select {
+	case <-ctx.Done():
+	case <-p.release:
+	}
+	<-p.release
+	return ctx.Err()
+}
+func TestMetadataOperationDrainsOnClose(t *testing.T) {
+	h := newFixture(t)
+	v, e := h.s.CreateUpload(h.ctx, user, "create", request([]byte("x")))
+	must(t, e)
+	p := waitingPolicy{make(chan bool, 1), make(chan struct{})}
+	s, e := media.New(h.repo, p, h.store, h.cfg)
+	must(t, e)
+	done := make(chan error, 1)
+	go func() { _, e := s.GetVersion(h.ctx, user, v.ID); done <- e }()
+	deadline := <-p.entered
+	short, cancel := context.WithTimeout(h.ctx, 30*time.Millisecond)
+	defer cancel()
+	closeErr := s.Close(short)
+	close(p.release)
+	err := <-done
+	must(t, s.Close(h.ctx))
+	if !deadline || !errors.Is(closeErr, context.DeadlineExceeded) || err == nil {
+		t.Fatalf("deadline=%v close=%v read=%v", deadline, closeErr, err)
+	}
+}
