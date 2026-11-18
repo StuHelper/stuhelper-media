@@ -352,13 +352,15 @@ func (s *Service) ReviewDownload(ctx context.Context, p Principal, id string, ds
 	defer done()
 	var object string
 	var quarantine, published Protection
+	var authAccess Access
 	check := func() error {
 		e := s.repo.Transaction(ctx, func(tx Transaction) error {
 			f, v, e := s.load(tx, id)
 			if e != nil {
 				return e
 			}
-			if e = s.authorize(ctx, p, "media.versions.review", access(f, v, nil)); e != nil {
+			authAccess = access(f, v, nil)
+			if e = s.authorize(ctx, p, "media.versions.review", authAccess); e != nil {
 				return e
 			}
 			if f.Disabled || f.Deleting || terminal(v) || (v.State != "awaiting_approval" && !v.Approved) || v.ObjectID == "" {
@@ -381,6 +383,13 @@ func (s *Service) ReviewDownload(ctx context.Context, p Principal, id string, ds
 		}
 		if status.Protection != quarantine && status.Protection != published {
 			return ErrDenied
+		}
+		if status.Protection != authAccess.Protection {
+			actual := authAccess
+			actual.Protection = status.Protection
+			if e = s.authorize(ctx, p, "media.versions.review", actual); e != nil {
+				return e
+			}
 		}
 		return nil
 	}

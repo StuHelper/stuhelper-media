@@ -110,8 +110,28 @@ func (s *Service) authorize(ctx context.Context, p Principal, action string, a A
 	}
 	return nil
 }
+func versionProtection(v Version) Protection {
+	if v.Approved {
+		return v.Profile.Published
+	}
+	return v.Profile.Quarantine
+}
 func access(f File, v Version, r *Reference) Access {
-	return Access{FileID: f.ID, VersionID: v.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: v.Profile.Published, Reference: r}
+	return Access{FileID: f.ID, VersionID: v.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: versionProtection(v), Reference: r}
+}
+func (s *Service) authorizeFile(ctx context.Context, p Principal, action string, f File, vs []Version) error {
+	var seen []Protection
+	for _, v := range vs {
+		prot := versionProtection(v)
+		if slices.Contains(seen, prot) {
+			continue
+		}
+		seen = append(seen, prot)
+		if e := s.authorize(ctx, p, action, access(f, v, nil)); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 func (s *Service) load(tx Transaction, id string) (File, Version, error) {
 	if !idOK(id) {
@@ -238,7 +258,7 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 				return ErrConflict
 			}
 		}
-		return s.authorize(ctx, p, "media.uploads.create", Access{FileID: r.FileID, Purpose: r.Purpose, Owner: p, Protection: profile.Published})
+		return s.authorize(ctx, p, "media.uploads.create", Access{FileID: r.FileID, Purpose: r.Purpose, Owner: p, Protection: profile.Quarantine})
 	}, func(tx Transaction) (any, error) {
 		files, open, e := tx.Counts(p)
 		if e != nil {
@@ -306,10 +326,10 @@ func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (Versi
 		v = current
 		return s.authorize(ctx, p, "media.files.read", access(f, v, nil))
 	})
-	out := VersionView{Version: v, Desired: 3}
 	if e != nil {
-		return out, e
+		return VersionView{}, e
 	}
+	out := VersionView{Version: v, Desired: 3}
 	if v.ObjectID != "" {
 		st, e := s.store.Status(ctx, s.cfg.Actor, v.ObjectID)
 		if e == nil {
@@ -350,7 +370,7 @@ func (s *Service) GetFile(ctx context.Context, p Principal, id string) (FileView
 		if len(vs) == 0 {
 			return ErrUnavailable
 		}
-		if e = s.authorize(ctx, p, "media.files.read", access(f, vs[0], nil)); e != nil {
+		if e = s.authorizeFile(ctx, p, "media.files.read", f, vs); e != nil {
 			return e
 		}
 		out = FileView{f, vs}
@@ -471,7 +491,7 @@ func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, r
 		if len(vs) == 0 {
 			return ErrUnavailable
 		}
-		return s.authorize(ctx, p, action, access(f, vs[0], nil))
+		return s.authorizeFile(ctx, p, action, f, vs)
 	}, func(tx Transaction) (any, error) {
 		if f.Revision != revision || f.Deleting {
 			return nil, ErrConflict

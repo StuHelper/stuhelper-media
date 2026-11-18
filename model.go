@@ -143,7 +143,8 @@ type FileView struct {
 }
 type FileListing struct {
 	File
-	Protection Protection
+	Protection  Protection
+	Protections []Protection
 }
 
 type FilePage struct {
