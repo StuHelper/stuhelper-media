@@ -11,7 +11,8 @@
   ],
   "scenario_tests": {
     "MEDIA-01": [
-      "integration_test.go#TestValidationExpiryAndConcurrentIdempotency"
+      "integration_test.go#TestValidationExpiryAndConcurrentIdempotency",
+      "document_test.go#TestDocumentTypeValidation"
     ],
     "MEDIA-02": [
       "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle"
