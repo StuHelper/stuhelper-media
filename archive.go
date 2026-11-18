@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ArchiveLimits returns the configured limits so a composing business service
@@ -38,92 +41,173 @@ func (s *Service) ListFilesFiltered(ctx context.Context, p Principal, filter Fil
 	if !p.Valid() {
 		return out, ErrDenied
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
-	defer cancel()
-	err := s.repo.Transaction(ctx, func(tx Transaction) error {
-		maxScan := min(5*filter.Limit, 500)
-		scanned := 0
-		cur := filter.Cursor
-		lastCursor := ""
-		exhausted := false
-		for len(out.Items) < filter.Limit && scanned < maxScan {
-			batchSize := min(filter.Limit, maxScan-scanned)
-			rows, e := tx.Files(p, FileListFilter{
-				Limit:   batchSize,
-				Cursor:  cur,
-				Purpose: filter.Purpose,
-				State:   filter.State,
-			})
-			if e != nil {
-				return e
+	ctx, finish, err := s.operation(ctx)
+	if err != nil {
+		return FilePage{}, err
+	}
+	defer finish()
+	cursor := filter.Cursor
+	maxScan := min(5*filter.Limit, 500)
+	for scanned := 0; scanned < maxScan; {
+		batch := filter
+		batch.Cursor = cursor
+		batch.Limit = min(filter.Limit, maxScan-scanned)
+		var rows []FileListing
+		err := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; rows, e = tx.Files(p, batch); return e })
+		if err != nil {
+			return FilePage{}, err
+		}
+		for i, f := range rows {
+			if f.Owner != p {
+				return FilePage{}, ErrUnavailable
 			}
-			if len(rows) == 0 {
-				exhausted = true
-				break
+			scanned++
+			cursor = FormatFileCursor(f.CreatedAt, f.ID)
+			protections := f.Protections
+			if len(protections) == 0 {
+				protections = []Protection{f.Protection}
 			}
-			for i, f := range rows {
-				if f.Owner != p {
-					return ErrUnavailable
-				}
-				scanned++
-				lastCursor = FormatFileCursor(f.CreatedAt, f.ID)
-				// Authorization receives the persisted owner and purpose, just as file detail does.
-				e = s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: f.Protection})
-				if errors.Is(e, ErrDenied) {
-					continue
-				}
-				if e != nil {
-					return e
-				}
-				out.Items = append(out.Items, f.File)
-				if len(out.Items) == filter.Limit {
-					if i == len(rows)-1 && len(rows) < batchSize {
-						exhausted = true
-					}
+			denied := false
+			for _, prot := range protections {
+				err := s.authorize(ctx, p, "media.files.read", Access{FileID: f.ID, Purpose: f.Purpose, Owner: f.Owner, Protection: prot})
+				if errors.Is(err, ErrDenied) {
+					denied = true
 					break
 				}
+				if err != nil {
+					return FilePage{}, err
+				}
 			}
+			if denied {
+				continue
+			}
+			out.Items = append(out.Items, f.File)
 			if len(out.Items) == filter.Limit {
-				break
+				if i+1 < len(rows) || len(rows) == batch.Limit {
+					out.NextCursor = cursor
+				}
+				return out, nil
 			}
-			if len(rows) < batchSize {
-				exhausted = true
-				break
-			}
-			cur = lastCursor
 		}
-		if !exhausted && lastCursor != "" {
-			out.NextCursor = lastCursor
+		if len(rows) < batch.Limit {
+			return out, nil
 		}
-		return nil
-	})
-	return out, err
+	}
+	out.NextCursor = cursor
+	return out, nil
 }
 
 func (s *Service) ArchiveManifest(ctx context.Context, p Principal, ids []string) (ArchiveManifest, error) {
+	ctx, finish, startErr := s.operation(ctx)
+	if startErr != nil {
+		return ArchiveManifest{}, startErr
+	}
+	defer finish()
 	out := ArchiveManifest{Entries: []ArchiveEntry{}}
 	if len(ids) < 1 || len(ids) > s.cfg.MaxArchiveFiles {
 		return out, ErrInput
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
-	defer cancel()
 	seen := map[string]bool{}
-	for n, id := range ids {
+	for _, id := range ids {
 		if !idOK(id) || seen[id] {
 			return ArchiveManifest{}, ErrInput
 		}
 		seen[id] = true
-		v, e := s.ReferenceVersion(ctx, p, id)
+	}
+	var rows map[string]ReferenceSnapshot
+	err := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; rows, e = tx.ReadReferences(ids); return e })
+	if err != nil {
+		return ArchiveManifest{}, err
+	}
+	for n, id := range ids {
+		row, ok := rows[id]
+		if !ok {
+			return ArchiveManifest{}, ErrNotFound
+		}
+		v, e := s.downloadVersion(ctx, p, row)
 		if e != nil {
 			return ArchiveManifest{}, e
 		}
 		if v.Size > s.cfg.MaxArchiveBytes-out.TotalSize {
-			return ArchiveManifest{}, ErrCapacity
+			return ArchiveManifest{}, withLimit(ErrArchiveTooLarge, s.cfg.MaxArchiveBytes)
 		}
+		name := v.Filename
+		if !validFilename(name) {
+			name = "document"
+		} // Older versions retain their original filename in the manifest.
 		out.TotalSize += v.Size
-		out.Entries = append(out.Entries, ArchiveEntry{ReferenceID: id, VersionID: v.ID, Path: fmt.Sprintf("files/%03d/%s", n+1, v.Filename), Filename: v.Filename, Size: v.Size, SHA256: v.SHA256})
+		out.Entries = append(out.Entries, ArchiveEntry{ReferenceID: id, VersionID: v.ID, Path: fmt.Sprintf("files/%03d/%s", n+1, name), Filename: v.Filename, Size: v.Size, SHA256: v.SHA256})
 	}
+	out.EstimatedZipBytes = estimateArchiveZipBytes(out)
+	out.EstimatedZipBytes = estimateArchiveZipBytes(out)
 	return out, nil
+}
+
+type countingDiscard int64
+
+func (c *countingDiscard) Write(p []byte) (int, error) {
+	*c += countingDiscard(len(p))
+	return len(p), nil
+}
+
+func estimateArchiveZipBytes(m ArchiveManifest) int64 {
+	var overhead countingDiscard
+	z := zip.NewWriter(&overhead)
+	for _, entry := range m.Entries {
+		_, _ = z.CreateHeader(&zip.FileHeader{Name: entry.Path, Method: zip.Store})
+	}
+	if w, err := z.CreateHeader(&zip.FileHeader{Name: "manifest.json", Method: zip.Store}); err == nil {
+		_ = json.NewEncoder(w).Encode(m)
+	}
+	_ = z.Close()
+	return int64(overhead) + m.TotalSize
+}
+
+func SanitizeArchiveFilename(raw string) (string, error) {
+	if raw == "" {
+		return "files.zip", nil
+	}
+	if !utf8.ValidString(raw) || len(raw) > 240 {
+		return "", ErrInput
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", ErrInput
+	}
+	if len(trimmed) >= 4 && strings.EqualFold(trimmed[len(trimmed)-4:], ".zip") {
+		trimmed = trimmed[:len(trimmed)-4]
+	}
+	var b strings.Builder
+	for _, r := range trimmed {
+		if r < 32 || unicode.IsControl(r) || strings.ContainsRune(`<>:"/\|?*`, r) {
+			b.WriteByte('_')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	cleaned := strings.Trim(b.String(), " .")
+	if cleaned == "" {
+		return "", ErrInput
+	}
+	stem := cleaned
+	if dot := strings.IndexByte(stem, '.'); dot >= 0 {
+		stem = stem[:dot]
+	}
+	switch strings.ToUpper(stem) {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		cleaned = "_" + cleaned
+	}
+	for len(cleaned) > 200 {
+		_, size := utf8.DecodeLastRuneInString(cleaned)
+		cleaned = cleaned[:len(cleaned)-size]
+	}
+	cleaned = strings.Trim(cleaned, " .")
+	if cleaned == "" {
+		return "", ErrInput
+	}
+	return cleaned + ".zip", nil
 }
 
 // Archive streams verified entries without retaining archive bytes. A single
