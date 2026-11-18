@@ -45,7 +45,7 @@ func (s *Service) Sweep(ctx context.Context, n int, after string) (string, error
 				if e = tx.SaveVersion(v); e != nil {
 					return e
 				}
-				if e = s.emit(tx, s.cfg.Actor, "media.upload.expired", v.ID, v.Revision); e != nil {
+				if e = s.emit(ctx, tx, s.cfg.Actor, "media.upload.expired", v.ID, v.Revision, v.Profile.SchoolID, nil); e != nil {
 					return e
 				}
 			}
@@ -253,7 +253,7 @@ func (s *Service) updateObserved(ctx context.Context, id, state string) error {
 		if e = tx.SaveVersion(v); e != nil {
 			return e
 		}
-		return s.emit(tx, s.cfg.Actor, "media.version."+state, v.ID, v.Revision)
+		return s.emit(ctx, tx, s.cfg.Actor, "media.version."+state, v.ID, v.Revision, v.Profile.SchoolID, nil)
 	})
 }
 func (s *Service) cleanupDone(ctx context.Context, id string) error {
@@ -276,6 +276,6 @@ func (s *Service) cleanupDone(ctx context.Context, id string) error {
 		if e = tx.SaveVersion(v); e != nil {
 			return e
 		}
-		return s.emit(tx, s.cfg.Actor, "media.version.cleaned", v.ID, v.Revision)
+		return s.emit(ctx, tx, s.cfg.Actor, "media.version.cleaned", v.ID, v.Revision, v.Profile.SchoolID, nil)
 	})
 }

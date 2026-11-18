@@ -41,7 +41,7 @@ func (s *Service) Attach(ctx context.Context, p Principal, id, key string, b Bin
 			return nil, ErrCapacity
 		}
 		v.References = append(v.References, ref)
-		if e := s.save(tx, p, v, "media.reference.attached"); e != nil {
+		if e := s.save(ctx, tx, p, v, "media.reference.attached", &ref); e != nil {
 			return nil, e
 		}
 		return ref, nil
@@ -122,7 +122,7 @@ func (s *Service) Release(ctx context.Context, p Principal, id, key string) (Ref
 		if liveReferences(v) == 0 && !terminal(v) {
 			v.State = "deleting"
 		}
-		if e := s.save(tx, p, v, "media.reference.released"); e != nil {
+		if e := s.save(ctx, tx, p, v, "media.reference.released", &r); e != nil {
 			return nil, e
 		}
 		return r, nil
@@ -152,7 +152,7 @@ func (s *Service) Publish(ctx context.Context, p Principal, id, key string) (Ref
 					v.References[n] = r
 				}
 			}
-			if e := s.save(tx, p, v, "media.reference.publication_requested"); e != nil {
+			if e := s.save(ctx, tx, p, v, "media.reference.publication_requested", &r); e != nil {
 				return nil, e
 			}
 		}
@@ -214,7 +214,7 @@ func (s *Service) Publish(ctx context.Context, p Principal, id, key string) (Ref
 					v.References[n] = r
 				}
 			}
-			return s.save(tx, p, v, "media.reference.published")
+			return s.save(ctx, tx, p, v, "media.reference.published", &r)
 		}
 		return nil
 	})

@@ -220,9 +220,12 @@ func (t *transaction) Event(e media.Event) error {
 	e.SpecVersion = "1.0"
 	e.Source = "stuhelper://media"
 	e.DataContentType = "application/json"
-	e.Data = media.EventData{Revision: e.Revision}
+	e.Data.Revision = e.Revision
 	if err := t.save(`INSERT INTO media.outbox(id,data) VALUES($1,$2)`, e, e.ID); err != nil {
 		return err
+	}
+	if _, err := t.tx.ExecContext(t.ctx, `SELECT pg_notify($1,'')`, media.OutboxChannel); err != nil {
+		return safe(err)
 	}
 	return t.save(`INSERT INTO media.audit(id,data) VALUES($1,$2)`, struct {
 		Event media.Event     `json:"event"`
@@ -247,13 +250,16 @@ func (r *Repository) Claim(ctx context.Context, worker string, now time.Time, le
 	return out, e
 }
 func (r *Repository) PendingEvents(ctx context.Context, n int) ([]media.Event, error) {
-	if n < 1 || n > 100 {
+	return r.PendingOutbox(ctx, n, nil)
+}
+func (r *Repository) PendingOutbox(ctx context.Context, n int, excluded []string) ([]media.Event, error) {
+	if n < 1 || n > 100 || len(excluded) > 1000 {
 		return nil, media.ErrInput
 	}
 	var out []media.Event
 	e := r.Transaction(ctx, func(tx media.Transaction) error {
 		var e error
-		out, e = list[media.Event](tx.(*transaction), `SELECT data FROM media.outbox WHERE NOT delivered ORDER BY id LIMIT $1`, n)
+		out, e = list[media.Event](tx.(*transaction), `SELECT data FROM media.outbox WHERE NOT delivered AND NOT ((data->>'subject')=ANY(coalesce($2::text[],ARRAY[]::text[]))) ORDER BY seq LIMIT $1`, n, excluded)
 		return e
 	})
 	return out, e

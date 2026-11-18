@@ -23,7 +23,9 @@
       "integration_test.go#TestRecoveryDoesNotDuplicateContentOrPublishFromStaleConsent"
     ],
     "MEDIA-05": [
-      "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"
+      "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences",
+      "integration_test.go#TestOutboxPreservesWriteOrder",
+      "integration_test.go#TestReferenceEventContextAndExcludedSubjects"
     ],
     "MEDIA-06": [
       "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent"

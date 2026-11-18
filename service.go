@@ -43,7 +43,7 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 	}
 	profiles := make(map[string]Profile, len(c.Profiles))
 	for name, p := range c.Profiles {
-		if !idOK(name) || !idOK(p.Module) || !p.Quarantine.Valid() || p.Quarantine.Public || !p.Published.Valid() || p.Published.Scope != p.Quarantine.Scope || (!p.Published.Public && p.Published != p.Quarantine) || p.MaxSize < 1 || p.MaxSize > 1<<30 || len(p.AllowedTypes) == 0 || len(p.AllowedTypes) > 32 {
+		if (p.SchoolID != "" && !idOK(p.SchoolID)) || !idOK(name) || !idOK(p.Module) || !p.Quarantine.Valid() || p.Quarantine.Public || !p.Published.Valid() || p.Published.Scope != p.Quarantine.Scope || (!p.Published.Public && p.Published != p.Quarantine) || p.MaxSize < 1 || p.MaxSize > 1<<30 || len(p.AllowedTypes) == 0 || len(p.AllowedTypes) > 32 {
 			return nil, ErrInput
 		}
 		for _, v := range p.AllowedTypes {
@@ -175,8 +175,13 @@ func (s *Service) mutation(ctx context.Context, p Principal, action, id, key str
 		return json.Unmarshal(b, out)
 	})
 }
-func (s *Service) emit(tx Transaction, p Principal, kind, id string, revision int64) error {
-	return tx.Event(Event{ID: newID(), Type: kind + ".v1", Subject: id, Revision: revision, Time: s.now(), Actor: p})
+func (s *Service) emit(ctx context.Context, tx Transaction, p Principal, kind, id string, revision int64, school string, ref *Reference) error {
+	var data EventData
+	if ref != nil {
+		data = EventData{ReferenceID: ref.ID, FileID: ref.FileID, Module: ref.Module, ResourceID: ref.ResourceID}
+	}
+	trace, _ := ctx.Value(traceParentKey{}).(string)
+	return tx.Event(Event{Data: data, SchoolID: school, TraceParent: trace, ID: newID(), Type: kind + ".v1", Subject: id, Revision: revision, Time: s.now(), Actor: p})
 }
 func (s *Service) schedule(tx Transaction, id string, reset bool) error {
 	j, e := tx.Job(id)
@@ -198,7 +203,7 @@ func (s *Service) schedule(tx Transaction, id string, reset bool) error {
 	}
 	return tx.SaveJob(j)
 }
-func (s *Service) save(tx Transaction, p Principal, v Version, kind string) error {
+func (s *Service) save(ctx context.Context, tx Transaction, p Principal, v Version, kind string, ref *Reference) error {
 	v.Revision++
 	if e := tx.SaveVersion(v); e != nil {
 		return e
@@ -206,7 +211,7 @@ func (s *Service) save(tx Transaction, p Principal, v Version, kind string) erro
 	if e := s.schedule(tx, v.ID, true); e != nil {
 		return e
 	}
-	return s.emit(tx, p, kind, v.ID, v.Revision)
+	return s.emit(ctx, tx, p, kind, v.ID, v.Revision, v.Profile.SchoolID, ref)
 }
 func validFilename(v string) bool {
 	return utf8.ValidString(v) && len(v) > 0 && len(v) <= 240 && v != "." && v != ".." && !strings.ContainsAny(v, "/\\") && strings.IndexFunc(v, unicode.IsControl) < 0
@@ -281,7 +286,7 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 				return nil, e
 			}
 		}
-		if e = s.emit(tx, p, "media.upload.created", v.ID, v.Revision); e != nil {
+		if e = s.emit(ctx, tx, p, "media.upload.created", v.ID, v.Revision, v.Profile.SchoolID, nil); e != nil {
 			return nil, e
 		}
 		return v, nil
@@ -382,7 +387,7 @@ func (s *Service) Approve(ctx context.Context, p Principal, id, key string) (Ver
 			if e := s.schedule(tx, v.ID, true); e != nil {
 				return nil, e
 			}
-			if e := s.emit(tx, p, "media.version.approved", v.ID, v.Revision); e != nil {
+			if e := s.emit(ctx, tx, p, "media.version.approved", v.ID, v.Revision, v.Profile.SchoolID, nil); e != nil {
 				return nil, e
 			}
 		}
@@ -425,7 +430,7 @@ func (s *Service) CancelUpload(ctx context.Context, p Principal, id, key string)
 			if e := s.schedule(tx, v.ID, true); e != nil {
 				return nil, e
 			}
-			if e := s.emit(tx, p, "media.upload.cancelled", v.ID, v.Revision); e != nil {
+			if e := s.emit(ctx, tx, p, "media.upload.cancelled", v.ID, v.Revision, v.Profile.SchoolID, nil); e != nil {
 				return nil, e
 			}
 		}
@@ -500,7 +505,7 @@ func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, r
 				return nil, e
 			}
 		}
-		if e := s.emit(tx, p, action, f.ID, f.Revision); e != nil {
+		if e := s.emit(ctx, tx, p, action, f.ID, f.Revision, vs[0].Profile.SchoolID, nil); e != nil {
 			return nil, e
 		}
 		return FileView{f, vs}, nil

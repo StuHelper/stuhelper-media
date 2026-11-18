@@ -21,7 +21,24 @@ CREATE TABLE IF NOT EXISTS media.jobs (
 CREATE INDEX IF NOT EXISTS media_jobs_claim ON media.jobs(state,available_at,lease_until);
 CREATE TABLE IF NOT EXISTS media.replays (key text PRIMARY KEY, data jsonb NOT NULL);
 CREATE TABLE IF NOT EXISTS media.outbox (id text PRIMARY KEY, data jsonb NOT NULL, delivered boolean NOT NULL DEFAULT false);
-CREATE INDEX IF NOT EXISTS media_outbox_pending ON media.outbox(id) WHERE NOT delivered;
+-- Existing rows have random ids. Preserve per-subject revision order when
+-- assigning their initial delivery positions, then let PostgreSQL assign new ones.
+DO $$
+DECLARE next_seq bigint;
+BEGIN
+ LOCK TABLE media.outbox IN ACCESS EXCLUSIVE MODE;
+ IF NOT EXISTS (SELECT FROM pg_attribute WHERE attrelid='media.outbox'::regclass AND attname='seq' AND NOT attisdropped) THEN
+  ALTER TABLE media.outbox ADD COLUMN seq bigint;
+  WITH ordered AS (
+   SELECT id,row_number() OVER (ORDER BY data->>'subject',(data->'data'->>'revision')::bigint,(data->>'time')::timestamptz,id) AS pos FROM media.outbox
+  ) UPDATE media.outbox o SET seq=ordered.pos FROM ordered WHERE o.id=ordered.id;
+  ALTER TABLE media.outbox ALTER COLUMN seq SET NOT NULL;
+  ALTER TABLE media.outbox ALTER COLUMN seq ADD GENERATED ALWAYS AS IDENTITY;
+  SELECT coalesce(max(seq),0)+1 INTO next_seq FROM media.outbox;
+  EXECUTE format('ALTER TABLE media.outbox ALTER COLUMN seq RESTART WITH %s',next_seq);
+ END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS media_outbox_pending_seq ON media.outbox(seq) WHERE NOT delivered;
 CREATE TABLE IF NOT EXISTS media.audit (id text PRIMARY KEY, data jsonb NOT NULL);
 REVOKE ALL ON SCHEMA media FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA media FROM PUBLIC;
