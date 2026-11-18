@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type authenticate struct{}
@@ -32,8 +33,45 @@ func (authenticate) Authenticate(r *http.Request) (media.Principal, error) {
 	}
 }
 
+type proofContextKey struct{}
+type proofFixture struct {
+	authenticate
+	media.Authorizer
+}
+
+func (p proofFixture) Authenticate(r *http.Request) (media.Principal, error) {
+	actor, err := p.authenticate.Authenticate(r)
+	if err == nil {
+		*r = *r.WithContext(context.WithValue(r.Context(), proofContextKey{}, actor))
+	}
+	return actor, err
+}
+func (p proofFixture) Authorize(ctx context.Context, actor media.Principal, action string, a media.Access) error {
+	if ctx.Value(proofContextKey{}) != actor {
+		return media.ErrDenied
+	}
+	return p.Authorizer.Authorize(ctx, actor, action, a)
+}
+
 func TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent(t *testing.T) {
 	h := newFixture(t)
+	t.Run("authenticated request context reaches service", func(t *testing.T) {
+		auth := proofFixture{authenticate{}, h.policy}
+		svc, err := media.New(h.repo, auth, h.store, h.cfg)
+		must(t, err)
+		defer svc.Close(h.ctx)
+		handler, err := httpapi.New(svc, auth, 1024)
+		must(t, err)
+		req := httptest.NewRequest("POST", "/api/v1/media/uploads", bytes.NewReader(mustJSON(t, request([]byte("fixture")))))
+		req.Header.Set("Authorization", "Bearer fixture-owner")
+		req.Header.Set("Idempotency-Key", "proof")
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	})
 	handler, e := httpapi.New(h.s, authenticate{}, 1<<20)
 	must(t, e)
 	server := httptest.NewServer(handler)
@@ -419,3 +457,167 @@ func TestCheckWithPostgresScriptBinaryResolution(t *testing.T) {
 }
 
 func mustJSON(t *testing.T, v any) []byte { t.Helper(); b, e := json.Marshal(v); must(t, e); return b }
+func TestHTTPReuseReturnsDurableSession(t *testing.T) {
+	h := newFixture(t)
+	data := []byte("same lecture")
+	h.newUpload(t, "source", data)
+	must(t, h.s.Close(h.ctx))
+	var e error
+	h.s, e = media.New(h.repo, h.policy, &lostStore{Store: h.store, loseCreate: true}, h.cfg)
+	must(t, e)
+	handler, e := httpapi.New(h.s, authenticate{}, 1<<20)
+	must(t, e)
+	r := request(data)
+	r.ReuseExisting = true
+	post := func() media.Version {
+		w := httptest.NewRecorder()
+		q := httptest.NewRequest("POST", "/api/v1/media/uploads", bytes.NewReader(mustJSON(t, r)))
+		q.Header.Set("Content-Type", "application/json")
+		q.Header.Set("Idempotency-Key", "reuse")
+		q.Header.Set("Authorization", "Bearer fixture-owner")
+		handler.ServeHTTP(w, q)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		var v media.Version
+		must(t, json.Unmarshal(w.Body.Bytes(), &v))
+		return v
+	}
+	v := post()
+	if !v.Reused || v.UploadID == "" || v.State != "verifying" {
+		t.Fatal(v.State)
+	}
+	_, e = h.s.CancelUpload(h.ctx, user, v.UploadID, "cancel")
+	must(t, e)
+	again := post()
+	if again.UploadID != v.UploadID || again.State != "cancelled" {
+		t.Fatal(again.State)
+	}
+	var count int
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.versions").Scan(&count))
+	if count != 2 {
+		t.Fatal(count)
+	}
+}
+func TestHTTPReviewAndBodyLimits(t *testing.T) {
+	h := newFixture(t)
+	handler, e := httpapi.New(h.s, authenticate{}, 32)
+	must(t, e)
+	call := func(method, path, key, typ string, b io.Reader) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, b)
+		r.Header.Set("Authorization", "Bearer fixture-owner")
+		r.Header.Set("Content-Type", typ)
+		r.Header.Set("Idempotency-Key", key)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	data := []byte("lecture")
+	v := h.newUpload(t, "review", data)
+	url := "/api/v1/media/versions/" + v.ID + "/review-content"
+	w := call("GET", url, "", "", nil)
+	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), data) {
+		t.Fatalf("review returned %d", w.Code)
+	}
+	h.policy.deny("media.versions.review", true)
+	w = call("GET", url, "", "", nil)
+	if w.Code != 403 || bytes.Contains(w.Body.Bytes(), data) {
+		t.Fatal(w.Code)
+	}
+	q := request(data)
+	q.Size = h.cfg.Profiles["documents"].MaxSize + 1
+	w = call("POST", "/api/v1/media/uploads", "big", "application/json", bytes.NewReader(mustJSON(t, q)))
+	if w.Code != 413 {
+		t.Fatal(w.Code)
+	}
+	w = call("POST", "/api/v1/media/uploads", "json", "application/json", strings.NewReader(strings.Repeat(" ", 65537)+"{}"))
+	if w.Code != 413 {
+		t.Fatal(w.Code)
+	}
+	fresh, e := h.s.CreateUpload(h.ctx, user, "new", request(data))
+	must(t, e)
+	w = call("PUT", "/api/v1/media/uploads/"+fresh.UploadID+"/content", "long", "application/octet-stream", bytes.NewReader(append(bytes.Clone(data), 'x')))
+	if w.Code != 413 {
+		t.Fatal(w.Code)
+	}
+	longRequest := httptest.NewRequest("PUT", "/api/v1/media/uploads/"+fresh.UploadID+"/content", strings.NewReader(strings.Repeat("x", 64)))
+	longRequest.ContentLength = -1
+	longRequest.Header.Set("Content-Type", "application/octet-stream")
+	longRequest.Header.Set("Authorization", "Bearer fixture-owner")
+	longRequest.Header.Set("Idempotency-Key", "long")
+	streamed := httptest.NewRecorder()
+	handler.ServeHTTP(streamed, longRequest)
+	if streamed.Code != 413 {
+		t.Fatal("streamed oversize", streamed.Code)
+	}
+	st, e := h.s.GetVersion(h.ctx, user, fresh.ID)
+	must(t, e)
+	if st.Healthy != 0 || st.State == "rejected" {
+		t.Fatal(st.State, st.Healthy)
+	}
+	r, e := http.NewRequest("POST", "/api/v1/media/versions/"+v.ID+"/approval", nil)
+	must(t, e)
+	r.Header.Set("Authorization", "Bearer fixture-owner")
+	r.Header.Set("Idempotency-Key", "nil-body")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+}
+func TestPortableFilenamesAndRouting(t *testing.T) {
+	h := newFixture(t)
+	q := request([]byte("lecture"))
+	for _, name := range []string{"lecture:1.pdf", "CON.pdf", "lecture.", "slides ", "lPt2.txt"} {
+		q.Filename = name
+		if _, e := h.s.CreateUpload(h.ctx, user, "name", q); e != media.ErrInput {
+			t.Fatal(name, e)
+		}
+	}
+	var count int
+	must(t, h.db.QueryRow("SELECT count(*) FROM media.files").Scan(&count))
+	if count != 0 {
+		t.Fatal(count)
+	}
+	handler, e := httpapi.New(h.s, authenticate{}, 100)
+	must(t, e)
+	for _, c := range []struct {
+		m, path string
+		code    int
+	}{{"GET", "/missing", 404}, {"POST", "/api/v1/media/files", 405}} {
+		r := httptest.NewRequest(c.m, c.path, nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != c.code || !json.Valid(w.Body.Bytes()) || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatal(c, w.Code, w.Body.String())
+		}
+		if c.code == 405 && !strings.Contains(w.Header().Get("Allow"), "GET") {
+			t.Fatal("missing Allow")
+		}
+	}
+}
+
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	read, write []time.Time
+}
+
+func (w *deadlineRecorder) SetReadDeadline(d time.Time) error { w.read = append(w.read, d); return nil }
+func (w *deadlineRecorder) SetWriteDeadline(d time.Time) error {
+	w.write = append(w.write, d)
+	return nil
+}
+func TestConnectionDeadlineClearedAfterRequest(t *testing.T) {
+	h := newFixture(t)
+	handler, e := httpapi.New(h.s, authenticate{}, 100)
+	must(t, e)
+	r := httptest.NewRequest("GET", "/api/v1/media/files", nil)
+	r.Header.Set("Authorization", "Bearer fixture-owner")
+	w := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	handler.ServeHTTP(w, r)
+	for _, values := range [][]time.Time{w.read, w.write} {
+		if len(values) != 2 || values[0].IsZero() || !values[1].IsZero() {
+			t.Fatal(values)
+		}
+	}
+}

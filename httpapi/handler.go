@@ -56,6 +56,26 @@ func (m *authMux) HandleFunc(pattern string, next func(http.ResponseWriter, *htt
 	m.ServeMux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		ctx, cancel := context.WithTimeout(r.Context(), m.h.s.OperationTimeout())
+		defer cancel()
+		r = r.WithContext(ctx)
+		controller := http.NewResponseController(w)
+		deadline, _ := ctx.Deadline()
+		_ = controller.SetReadDeadline(deadline)
+		_ = controller.SetWriteDeadline(deadline)
+		expired := make(chan struct{})
+		stop := context.AfterFunc(ctx, func() {
+			defer close(expired)
+			_ = controller.SetReadDeadline(time.Now())
+			_ = controller.SetWriteDeadline(time.Now())
+		})
+		defer func() {
+			if !stop() {
+				<-expired
+			}
+			_ = controller.SetReadDeadline(time.Time{})
+			_ = controller.SetWriteDeadline(time.Time{})
+		}()
 		p, e := m.h.auth.Authenticate(r)
 		if e != nil || !p.Valid() {
 			if errors.Is(e, media.ErrUnavailable) {
@@ -65,17 +85,6 @@ func (m *authMux) HandleFunc(pattern string, next func(http.ResponseWriter, *htt
 			}
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-		defer cancel()
-		controller := http.NewResponseController(w)
-		deadline, _ := ctx.Deadline()
-		_ = controller.SetReadDeadline(deadline)
-		_ = controller.SetWriteDeadline(deadline)
-		stop := context.AfterFunc(ctx, func() {
-			_ = controller.SetReadDeadline(time.Now())
-			_ = controller.SetWriteDeadline(time.Now())
-		})
-		defer stop()
 		limit := int64(65536)
 		if upload {
 			limit = m.h.max
@@ -89,12 +98,12 @@ func (m *authMux) HandleFunc(pattern string, next func(http.ResponseWriter, *htt
 		if raw == nil {
 			raw = http.NoBody
 		}
-		maxBytes := limit
-		if upload {
-			maxBytes = m.h.max + 1
+		if len(r.Header.Values("Idempotency-Key")) > 1 {
+			failure(w, media.ErrInput)
+			return
 		}
-		tracked := &trackedBody{ReadCloser: http.MaxBytesReader(w, raw, maxBytes)}
-		r = r.WithContext(context.WithValue(ctx, requestKey{}, requestState{principal: p, body: tracked}))
+		tracked := &trackedBody{ReadCloser: http.MaxBytesReader(w, raw, limit)}
+		r = r.WithContext(context.WithValue(r.Context(), requestKey{}, requestState{principal: p, body: tracked}))
 		r.Body = tracked
 		next(w, r)
 	})
@@ -106,13 +115,36 @@ func New(s *media.Service, a Authenticator, max int64) (http.Handler, error) {
 	}
 	h := &handler{s: s, auth: a, max: max}
 	mux := &authMux{ServeMux: http.NewServeMux(), h: h}
-	return sdk.HandlerWithOptions(h, sdk.StdHTTPServerOptions{
+	generated := sdk.HandlerWithOptions(h, sdk.StdHTTPServerOptions{
 		BaseRouter: mux,
 		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, _ error) {
 			problem(w, 400, media.ErrInput.Error())
 		},
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler, pattern := mux.Handler(r)
+		if pattern == "" {
+			handler.ServeHTTP(routeErrorWriter{w}, r)
+			return
+		}
+		generated.ServeHTTP(w, r)
 	}), nil
 }
+
+// Preserve ServeMux method negotiation (including Allow) and format its errors
+// with the same response contract as registered endpoints.
+type routeErrorWriter struct{ http.ResponseWriter }
+
+func (w routeErrorWriter) WriteHeader(status int) {
+	code := "media_not_found"
+	if status == http.StatusMethodNotAllowed {
+		code = "method_not_allowed"
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	problem(w.ResponseWriter, status, code)
+}
+func (w routeErrorWriter) Write(b []byte) (int, error) { return len(b), nil }
 
 func principalOf(r *http.Request) media.Principal {
 	if st, ok := r.Context().Value(requestKey{}).(requestState); ok {
@@ -298,6 +330,17 @@ func (h *handler) DownloadReference(w http.ResponseWriter, r *http.Request, id s
 	h.respond(w, r, nil, e)
 }
 
+func (h *handler) DownloadReviewContent(w http.ResponseWriter, r *http.Request, id string) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", "attachment")
+	dst := &reviewWriter{ResponseWriter: w}
+	err := h.s.ReviewDownload(r.Context(), principalOf(r), id, dst)
+	if err != nil && dst.started {
+		panic(http.ErrAbortHandler)
+	}
+	h.respond(w, r, nil, err)
+}
+
 func decode(r *http.Request, out any) error {
 	typ, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if e != nil || typ != "application/json" {
@@ -306,37 +349,40 @@ func decode(r *http.Request, out any) error {
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if e = d.Decode(out); e != nil {
-		var limit *http.MaxBytesError
-		if errors.As(e, &limit) {
-			return e
-		}
-		return media.ErrInput
+		return bodyError(e)
 	}
-	if e = d.Decode(new(any)); e != io.EOF {
-		var limit *http.MaxBytesError
-		if errors.As(e, &limit) {
-			return e
-		}
-		return media.ErrInput
+	if err := d.Decode(new(any)); err != io.EOF {
+		return bodyError(err)
 	}
 	return nil
 }
+func bodyError(e error) error {
+	var limit *http.MaxBytesError
+	if errors.As(e, &limit) {
+		return media.ErrTooLarge
+	}
+	return media.ErrInput
+}
 
+type reviewWriter struct {
+	http.ResponseWriter
+	started bool
+}
+
+func (w *reviewWriter) Write(b []byte) (int, error) {
+	w.started = true
+	return w.ResponseWriter.Write(b)
+}
 func empty(r *http.Request) error {
-	b, e := io.ReadAll(io.LimitReader(r.Body, 1))
+	b, e := io.ReadAll(r.Body)
 	if e != nil {
-		var limit *http.MaxBytesError
-		if errors.As(e, &limit) {
-			return e
-		}
-		return media.ErrInput
+		return bodyError(e)
 	}
 	if len(b) > 0 {
 		return media.ErrInput
 	}
 	return nil
 }
-
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Del("Content-Length")
 	w.Header().Del("Content-Disposition")
@@ -354,7 +400,7 @@ func failure(w http.ResponseWriter, e error) {
 	for _, entry := range []struct {
 		e      error
 		status int
-	}{{media.ErrInput, 400}, {media.ErrDenied, 403}, {media.ErrNotFound, 404}, {media.ErrConflict, 409}, {media.ErrExpired, 410}, {media.ErrIntegrity, 422}, {media.ErrType, 422}, {media.ErrCapacity, 503}} {
+	}{{media.ErrTooLarge, 413}, {media.ErrInput, 400}, {media.ErrDenied, 403}, {media.ErrNotFound, 404}, {media.ErrConflict, 409}, {media.ErrExpired, 410}, {media.ErrIntegrity, 422}, {media.ErrType, 422}, {media.ErrCapacity, 503}} {
 		if errors.Is(e, entry.e) {
 			status = entry.status
 			code = entry.e.Error()
