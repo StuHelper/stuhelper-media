@@ -13,7 +13,8 @@
     "MEDIA-01": [
       "integration_test.go#TestValidationExpiryAndConcurrentIdempotency",
       "integration_test.go#TestUploadIdempotencyKeyAndVerifyingReconciliation",
-      "integration_test.go#TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload"
+      "integration_test.go#TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload",
+      "document_test.go#TestDocumentTypeValidation"
     ],
     "MEDIA-02": [
       "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle"

@@ -8,8 +8,7 @@ import (
 	"errors"
 	storage "github.com/StuHelper/stuhelper-storage"
 	"io"
-	"mime"
-	"net/http"
+
 	"time"
 )
 
@@ -206,12 +205,9 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 }
 
 func (s *Service) ingestUpload(ctx context.Context, p Principal, v Version, src io.Reader) error {
-	prefix, e := io.ReadAll(io.LimitReader(src, 512))
-	if e == nil {
-		detected, _, parse := mime.ParseMediaType(http.DetectContentType(prefix))
-		if parse != nil || detected != v.ContentType {
-			e = ErrType
-		}
+	prefix, e := io.ReadAll(io.LimitReader(src, 3072))
+	if e == nil && !matchesContentType(prefix, v.ContentType) {
+		e = ErrType
 	}
 	if e == nil {
 		e = s.repo.Transaction(ctx, func(tx Transaction) error {

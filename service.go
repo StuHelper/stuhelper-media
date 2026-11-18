@@ -48,7 +48,7 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 		}
 		for _, v := range p.AllowedTypes {
 			typ, params, e := mime.ParseMediaType(v)
-			if e != nil || typ != v || len(params) != 0 {
+			if e != nil || typ != v || len(params) != 0 || !supportedType(v) {
 				return nil, ErrInput
 			}
 		}
