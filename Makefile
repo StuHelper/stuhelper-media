@@ -12,6 +12,7 @@ check: check-generated
 	test -n "$(STUHELPER_MEDIA_TEST_DSN)" || (echo 'Set STUHELPER_MEDIA_TEST_DSN to an isolated PostgreSQL test server'; exit 1)
 	pnpm exec stuhelper-check repository
 	node scripts/check-module.mjs
+	pnpm exec tsc --noEmit sdk/upload-request.test.ts
 	pnpm exec stuhelper-check docs
 	test -z "$$(gofmt -l .)"
 	go vet ./...
