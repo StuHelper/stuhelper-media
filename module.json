@@ -26,7 +26,8 @@
       "integration_test.go#TestDatabaseIsolationAtomicAuditAndDeleteWithReferences"
     ],
     "MEDIA-06": [
-      "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent"
+      "http_test.go#TestHTTPGeneratedSDKRejectsUntrustedFieldsAndProtectsContent",
+      "http_test.go#TestPortableFilenamesAndRouting"
     ],
     "MEDIA-07": [
       "integration_test.go#TestLostCreateAfterReplayWindowExpiresCleansOriginalObject"
@@ -42,7 +43,8 @@
     ],
     "MEDIA-11": [
       "reuse_test.go#TestOwnContentReuseKeepsIndependentApprovalAndReferences",
-      "reuse_test.go#TestDigestAloneCannotReuseAnotherOwnersFile"
+      "reuse_test.go#TestDigestAloneCannotReuseAnotherOwnersFile",
+      "integration_test.go#TestReusePlanStartsWithOwner"
     ],
     "MEDIA-12": [
       "reuse_test.go#TestReuseRequiresCurrentSourceRightsAndProfile",

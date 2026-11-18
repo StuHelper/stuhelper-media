@@ -279,7 +279,7 @@ func (r *Repository) CheckRuntime(ctx context.Context) error {
 // Only the owner's small matching set is considered. Current authorization and
 // complete profile equality are checked by Service before selecting a candidate.
 func (t *transaction) ReuseCandidates(p media.Principal, r media.UploadRequest) ([]media.Version, error) {
-	rows, e := list[versionRecord](t, `SELECT v.data FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE f.owner_key=$1 AND f.data->>'purpose'=$2 AND v.data->>'sha256'=$3 AND (v.data->>'size')::bigint=$4 AND v.data->>'content_type'=$5 AND v.state IN ('awaiting_approval','approved','ready') AND NOT (f.data->>'disabled')::boolean AND NOT (f.data->>'deleting')::boolean ORDER BY v.id LIMIT 10`, owner(p), r.Purpose, r.SHA256, r.Size, r.ContentType)
+	rows, e := list[versionRecord](t, `SELECT v.data FROM media.versions v JOIN media.files f ON f.id=v.file_id WHERE v.owner_key=$1 AND f.owner_key=$1 AND f.data->>'purpose'=$2 AND v.data->>'sha256'=$3 AND (v.data->>'size')::bigint=$4 AND v.data->>'content_type'=$5 AND v.state IN ('awaiting_approval','approved','ready') AND NOT (f.data->>'disabled')::boolean AND NOT (f.data->>'deleting')::boolean ORDER BY v.id LIMIT 10`, owner(p), r.Purpose, r.SHA256, r.Size, r.ContentType)
 	out := make([]media.Version, 0, len(rows))
 	for _, v := range rows {
 		out = append(out, v.value())

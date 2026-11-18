@@ -72,8 +72,12 @@ func (s *Service) ArchiveManifest(ctx context.Context, p Principal, ids []string
 		if v.Size > s.cfg.MaxArchiveBytes-out.TotalSize {
 			return ArchiveManifest{}, ErrCapacity
 		}
+		name := v.Filename
+		if !validFilename(name) {
+			name = "document"
+		} // Older versions retain their original filename in the manifest.
 		out.TotalSize += v.Size
-		out.Entries = append(out.Entries, ArchiveEntry{ReferenceID: id, VersionID: v.ID, Path: fmt.Sprintf("files/%03d/%s", n+1, v.Filename), Filename: v.Filename, Size: v.Size, SHA256: v.SHA256})
+		out.Entries = append(out.Entries, ArchiveEntry{ReferenceID: id, VersionID: v.ID, Path: fmt.Sprintf("files/%03d/%s", n+1, name), Filename: v.Filename, Size: v.Size, SHA256: v.SHA256})
 	}
 	return out, nil
 }
