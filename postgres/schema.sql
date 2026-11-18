@@ -9,7 +9,19 @@ CREATE TABLE IF NOT EXISTS media.versions (
  upload_id text NOT NULL UNIQUE, number integer NOT NULL, state text NOT NULL,
  data jsonb NOT NULL, UNIQUE(file_id,number)
 );
-CREATE INDEX IF NOT EXISTS media_content_reuse ON media.versions((data->>'sha256'),((data->>'size')::bigint),(data->>'content_type'),file_id,id) WHERE state IN ('awaiting_approval','approved','ready');
+-- A trigger also covers writers built before the owner-prefixed index.
+ALTER TABLE media.versions ADD COLUMN IF NOT EXISTS owner_key text;
+UPDATE media.versions v SET owner_key=f.owner_key FROM media.files f WHERE v.file_id=f.id AND v.owner_key IS NULL;
+ALTER TABLE media.versions ALTER COLUMN owner_key SET NOT NULL;
+CREATE OR REPLACE FUNCTION media.version_owner_key() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ SELECT f.owner_key INTO STRICT NEW.owner_key FROM media.files f WHERE f.id=NEW.file_id;
+ RETURN NEW;
+END $$;
+CREATE OR REPLACE TRIGGER version_owner_key BEFORE INSERT OR UPDATE OF file_id,owner_key ON media.versions
+FOR EACH ROW EXECUTE FUNCTION media.version_owner_key();
+CREATE INDEX IF NOT EXISTS media_owner_content_reuse ON media.versions(owner_key,(data->>'sha256'),((data->>'size')::bigint),(data->>'content_type'),id) WHERE state IN ('awaiting_approval','approved','ready');
+DROP INDEX IF EXISTS media.media_content_reuse;
 -- Retain historical identities and idempotency while releasing active quota.
 UPDATE media.files f SET data=data || jsonb_build_object('retired',true,'disabled',true,'deleting',false,'revision',(data->>'revision')::bigint+1)
 WHERE NOT (data @> '{"retired":true}')

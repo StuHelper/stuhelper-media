@@ -1156,3 +1156,36 @@ func TestRuntimeRejectsSchemaOwnerMembership(t *testing.T) {
 		t.Fatal("runtime accepted schema owner membership")
 	}
 }
+func TestReusePlanStartsWithOwner(t *testing.T) {
+	h := newFixture(t)
+	v := h.newUpload(t, "sample", []byte("common textbook"))
+	var owner string
+	must(t, h.db.QueryRow("SELECT owner_key FROM media.files WHERE id=$1", v.FileID).Scan(&owner))
+	_, e := h.admin.Exec(`INSERT INTO media.files(id,owner_key,data) SELECT 'sample-'||n,'owner-'||n,data FROM media.files CROSS JOIN generate_series(1,2000)n WHERE id=$1`, v.FileID)
+	must(t, e)
+	_, e = h.admin.Exec(`INSERT INTO media.versions(id,file_id,upload_id,number,state,data) SELECT 'ver-'||n,'sample-'||n,'session-'||n,1,state,data FROM media.versions CROSS JOIN generate_series(1,2000)n WHERE id=$1`, v.ID)
+	must(t, e)
+	_, e = h.admin.Exec("ANALYZE media.files; ANALYZE media.versions")
+	must(t, e)
+	// Exercise the exact repository statement so the test tracks its predicates.
+	h.db.SetMaxOpenConns(1)
+	must(t, h.repo.Transaction(h.ctx, func(tx media.Transaction) error {
+		_, e := tx.ReuseCandidates(user, request([]byte("common textbook")))
+		return e
+	}))
+	var query string
+	must(t, h.db.QueryRow("SELECT statement FROM pg_prepared_statements WHERE statement LIKE 'SELECT v.data FROM media.versions v JOIN media.files f%' AND statement LIKE '%LIMIT 10'").Scan(&query))
+	rows, e := h.db.Query("EXPLAIN (ANALYZE,BUFFERS,COSTS OFF) "+query, owner, "documents", v.SHA256, v.Size, v.ContentType)
+	must(t, e)
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		must(t, rows.Scan(&line))
+		plan.WriteString(line + "\n")
+	}
+	must(t, rows.Err())
+	if !strings.Contains(plan.String(), "media_owner_content_reuse") {
+		t.Fatal(plan.String())
+	}
+}

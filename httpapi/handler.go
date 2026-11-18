@@ -152,8 +152,30 @@ func New(s *media.Service, a Authenticator, max int64) (http.Handler, error) {
 		}
 		return nil, err
 	})
-	return m, nil
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler, pattern := m.Handler(r)
+		if pattern == "" {
+			handler.ServeHTTP(routeErrorWriter{w}, r)
+			return
+		}
+		m.ServeHTTP(w, r)
+	}), nil
 }
+
+// Preserve ServeMux method negotiation (including Allow) and format its errors
+// with the same response contract as registered endpoints.
+type routeErrorWriter struct{ http.ResponseWriter }
+
+func (w routeErrorWriter) WriteHeader(status int) {
+	code := "media_not_found"
+	if status == http.StatusMethodNotAllowed {
+		code = "method_not_allowed"
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	problem(w.ResponseWriter, status, code)
+}
+func (w routeErrorWriter) Write(b []byte) (int, error) { return len(b), nil }
 func (h *handler) mount(m *http.ServeMux, path string, upload bool, run endpoint) {
 	m.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -165,8 +187,19 @@ func (h *handler) mount(m *http.ServeMux, path string, upload bool, run endpoint
 		deadline, _ := ctx.Deadline()
 		_ = controller.SetReadDeadline(deadline)
 		_ = controller.SetWriteDeadline(deadline)
-		stop := context.AfterFunc(ctx, func() { _ = controller.SetReadDeadline(time.Now()); _ = controller.SetWriteDeadline(time.Now()) })
-		defer stop()
+		expired := make(chan struct{})
+		stop := context.AfterFunc(ctx, func() {
+			defer close(expired)
+			_ = controller.SetReadDeadline(time.Now())
+			_ = controller.SetWriteDeadline(time.Now())
+		})
+		defer func() {
+			if !stop() {
+				<-expired
+			}
+			_ = controller.SetReadDeadline(time.Time{})
+			_ = controller.SetWriteDeadline(time.Time{})
+		}()
 		p, e := h.auth.Authenticate(r)
 		if e != nil || !p.Valid() {
 			if errors.Is(e, media.ErrUnavailable) {

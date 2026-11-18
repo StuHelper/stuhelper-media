@@ -244,7 +244,22 @@ func (s *Service) save(ctx context.Context, tx Transaction, p Principal, v Versi
 	return s.emit(ctx, tx, p, kind, v.ID, v.Revision, v.Profile.SchoolID, ref)
 }
 func validFilename(v string) bool {
-	return utf8.ValidString(v) && len(v) > 0 && len(v) <= 240 && v != "." && v != ".." && !strings.ContainsAny(v, "/\\") && strings.IndexFunc(v, unicode.IsControl) < 0
+	if !utf8.ValidString(v) || len(v) == 0 || len(v) > 240 || strings.HasSuffix(v, ".") || strings.HasSuffix(v, " ") || strings.ContainsAny(v, `<>:"/\|?*`) || strings.IndexFunc(v, unicode.IsControl) >= 0 {
+		return false
+	}
+	stem, _, _ := strings.Cut(v, ".")
+	stem = strings.ToUpper(strings.TrimRight(stem, " "))
+	switch stem {
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
+		return false
+	}
+	if strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT") {
+		suffix := stem[3:]
+		if utf8.RuneCountInString(suffix) == 1 && strings.Contains("123456789¹²³", suffix) {
+			return false
+		}
+	}
+	return true
 }
 func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r UploadRequest) (Version, error) {
 	ctx, finish, startErr := s.operation(ctx)

@@ -1,7 +1,7 @@
 ---
 type: spec
 status: Accepted
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 # 通用文件与业务引用
@@ -71,6 +71,10 @@ Outbox 按持久序号读取。事务提交时通过 media_outbox 唤醒 relay�
 审核员可通过 GET /api/v1/media/versions/{id}/review-content 下载已校验字节，首次输出前重新授权。请求超过用途、会话或网关大小上限时返回 HTTP 413。创建上传省略 reuse_existing 时按 false 处理。
 
 只读接口用 PostgreSQL 单语句快照读取文件、版本或引用，在事务外执行授权。每次生成清单只批量查询一次，并按请求顺序返回。打包仍逐项核对首字节权限，结束前重新批量核对清单。
+
+文件名须可在 Windows 解压。旧版本不兼容的名称保留在清单中，ZIP 内使用编号目录及 document。HTTP 路由错误返回 JSON 并保留 Allow，请求结束时清除读写期限。
+
+候选查询索引以文件拥有者为首列，随后按内容特征和版本 ID 排序。迁移从所属文件回填拥有者，数据库触发器兼容旧写入端。
 
 ## 验收场景
 

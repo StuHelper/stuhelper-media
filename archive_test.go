@@ -273,3 +273,22 @@ func TestUnapprovedQuarantineAndMultiVersionProtectionAuthorization(t *testing.T
 		t.Fatalf("DeleteFile ignored v2 quarantine protection: %v", e)
 	}
 }
+func TestArchivePreservesLegacyNameInManifest(t *testing.T) {
+	h := newFixture(t)
+	v := h.ready(t, h.newUpload(t, "legacy", []byte("notes")))
+	r := h.bind(t, v, "legacy")
+	_, e := h.admin.Exec(`UPDATE media.versions SET data=jsonb_set(data,'{filename}',to_jsonb($1::text)) WHERE id=$2`, "notes.", v.ID)
+	must(t, e)
+	m, e := h.s.ArchiveManifest(h.ctx, user, []string{r.ID})
+	must(t, e)
+	if len(m.Entries) != 1 || m.Entries[0].Filename != "notes." || m.Entries[0].Path != "files/001/document" {
+		t.Fatal(m.Entries)
+	}
+	var out bytes.Buffer
+	must(t, h.s.Archive(h.ctx, user, []string{r.ID}, &out))
+	z, e := zip.NewReader(bytes.NewReader(out.Bytes()), int64(out.Len()))
+	must(t, e)
+	if z.File[0].Name != m.Entries[0].Path {
+		t.Fatal(z.File[0].Name)
+	}
+}
