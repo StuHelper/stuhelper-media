@@ -150,6 +150,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	control, e := sql.Open("pgx", dsn)
 	must(t, e)
+	t.Cleanup(func() { _ = control.Close() })
 	var random [8]byte
 	_, e = rand.Read(random[:])
 	must(t, e)
@@ -158,20 +159,32 @@ func newFixture(t *testing.T) *fixture {
 	storageRole := name + "_storage"
 	_, e = control.Exec(`CREATE DATABASE ` + name)
 	must(t, e)
+	t.Cleanup(func() {
+		if _, err := control.Exec(`DROP DATABASE ` + name + ` WITH (FORCE)`); err != nil {
+			t.Error(err)
+		}
+		if _, err := control.Exec(`DROP ROLE IF EXISTS ` + mediaRole + `, ` + storageRole); err != nil {
+			t.Error(err)
+		}
+	})
 	admin, e := sql.Open("pgx", dsn+" dbname="+name)
 	must(t, e)
+	t.Cleanup(func() { _ = admin.Close() })
 	_, e = admin.Exec(mp.Schema + sp.Schema)
 	must(t, e)
 	_, e = admin.Exec(fmt.Sprintf(`CREATE ROLE %s LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; CREATE ROLE %s LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
  GRANT USAGE ON SCHEMA media TO %s; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA media TO %s; REVOKE UPDATE,DELETE ON media.audit FROM %s;
- GRANT USAGE ON SCHEMA storage TO %s; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA storage TO %s; REVOKE UPDATE,DELETE ON storage.audit FROM %s;
- REVOKE ALL ON SCHEMA public FROM PUBLIC;`, mediaRole, storageRole, mediaRole, mediaRole, mediaRole, storageRole, storageRole, storageRole))
+ GRANT USAGE ON SCHEMA storage TO %s; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA storage TO %s; REVOKE UPDATE,DELETE,TRUNCATE ON storage.audit FROM %s;
+ REVOKE INSERT,UPDATE,DELETE,TRUNCATE ON storage.audit_retention FROM %s;
+ REVOKE ALL ON SCHEMA public FROM PUBLIC;`, mediaRole, storageRole, mediaRole, mediaRole, mediaRole, storageRole, storageRole, storageRole, storageRole))
 	must(t, e)
 	db, e := sql.Open("pgx", dsn+" dbname="+name+" user="+mediaRole)
 	must(t, e)
+	t.Cleanup(func() { _ = db.Close() })
 	db.SetMaxOpenConns(12)
 	storageDB, e := sql.Open("pgx", dsn+" dbname="+name+" user="+storageRole)
 	must(t, e)
+	t.Cleanup(func() { _ = storageDB.Close() })
 	storageDB.SetMaxOpenConns(12)
 	c := &clock{t: time.Now().UTC()}
 	p := &provider{files: map[string][]byte{}, writes: map[string]int{}}
@@ -179,29 +192,15 @@ func newFixture(t *testing.T) *fixture {
 	must(t, sr.CheckRuntime(context.Background()))
 	st, e := storage.New(sr, storagePolicy{}, p, p, storage.Config{Clock: c.Now, MaxObjectSize: 1 << 20, TemporaryDirectory: t.TempDir(), ParallelTransfers: 4, Lease: time.Minute, VerificationAge: time.Hour, MaxAttempts: 3})
 	must(t, e)
+	t.Cleanup(func() { _ = st.Close(context.Background()) })
 	a := &policy{denied: map[string]bool{}}
 	repo := &mp.Repository{DB: db}
 	must(t, repo.CheckRuntime(context.Background()))
 	cfg := media.Config{Profiles: map[string]media.Profile{"documents": {Module: "fixture", Quarantine: media.Protection{Class: "quarantine", Scope: "school"}, Published: media.Protection{Class: "public", Scope: "school", Public: true}, AllowedTypes: []string{"text/plain", "application/pdf"}, MaxSize: 1 << 20}}, Actor: system, Clock: c.Now, UploadTTL: 15 * time.Minute, UnreferencedTTL: time.Hour, OperationTimeout: time.Minute, ParallelTransfers: 4, MaxOpenUploads: 10, MaxFilesPerOwner: 100, MaxVersions: 10, MaxReferences: 10, MaxAttempts: 3}
 	s, e := media.New(repo, a, st, cfg)
 	must(t, e)
+	t.Cleanup(func() { _ = s.Close(context.Background()) })
 	h := &fixture{s, st, repo, db, admin, p, a, c, cfg, context.Background()}
-	t.Cleanup(func() {
-		_ = h.s.Close(context.Background())
-		_ = st.Close(context.Background())
-		db.Close()
-		storageDB.Close()
-		admin.Close()
-		_, e := control.Exec(`DROP DATABASE ` + name + ` WITH (FORCE)`)
-		if e != nil {
-			t.Error(e)
-		}
-		_, e = control.Exec(`DROP ROLE ` + mediaRole + `, ` + storageRole)
-		if e != nil {
-			t.Error(e)
-		}
-		control.Close()
-	})
 	for n := 0; n < 3; n++ {
 		id := fmt.Sprintf("account-%d", n)
 		admissions := []storage.Admission{{Class: "public", Scope: "school", Plaintext: true, ExpiresAt: c.Now().Add(48 * time.Hour)}}
