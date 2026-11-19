@@ -636,6 +636,9 @@ func (s *Service) Reject(ctx context.Context, p Principal, id, key, reason strin
 		if v.State != "awaiting_approval" {
 			return nil, ErrConflict
 		}
+		if err := s.requireReclaimable(ctx, v); err != nil {
+			return nil, err
+		}
 		v.State = "rejected"
 		v.RejectionReason = reason
 		v.ErrorCode = "media_rejected_" + reason
@@ -701,6 +704,9 @@ func (s *Service) CancelUpload(ctx context.Context, p Principal, id, key string)
 			return nil, ErrConflict
 		}
 		if !terminal(v) {
+			if err := s.requireReclaimable(ctx, v); err != nil {
+				return nil, err
+			}
 			v.State = "cancelled"
 			v.UploadedBytes = 0
 			v.ErrorCode = ""
@@ -775,6 +781,9 @@ func (s *Service) changeFile(ctx context.Context, p Principal, id, key string, r
 			for _, v := range vs {
 				if liveReferences(v) > 0 {
 					return nil, ErrConflict
+				}
+				if err := s.requireReclaimable(ctx, v); err != nil {
+					return nil, err
 				}
 			}
 		}
