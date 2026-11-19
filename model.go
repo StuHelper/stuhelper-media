@@ -138,6 +138,7 @@ func (f ObserverFunc) Observe(ctx context.Context, o Observation) {
 }
 
 type Config struct {
+	SourceRetention                                                                    SourceRetention
 	Profiles                                                                           map[string]Profile
 	Actor                                                                              Principal
 	Clock                                                                              func() time.Time

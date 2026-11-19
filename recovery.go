@@ -45,6 +45,13 @@ func (s *Service) Sweep(ctx context.Context, n int, after string) (string, error
 			changed := false
 			activeUpload := v.State == "uploading" && v.UploadUntil.After(s.now())
 			if !terminal(v) && !activeUpload && activeReferences(v) == 0 && ((v.State == "created" || v.State == "uploading" || v.State == "verifying") && !v.ExpiresAt.After(s.now()) || !v.RetainUntil.After(s.now())) {
+				keep, err := s.retainSource(ctx, v)
+				if err != nil {
+					return err
+				}
+				if keep {
+					return nil
+				}
 				v.State = "expired"
 				v.UploadedBytes = 0
 				v.ErrorCode = ErrExpired.Error()

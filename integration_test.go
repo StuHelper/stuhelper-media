@@ -1775,3 +1775,59 @@ func TestOperationsBacklogBlockedRetryBoundedPruneAndReadiness(t *testing.T) {
 		t.Fatal("closed service reported ready", e)
 	}
 }
+
+func TestRetainedSourceSurvivesReleaseAndRestoresWithFreshPublication(t *testing.T) {
+	h := newFixture(t)
+	data := []byte("private source under review")
+	v := h.ready(t, h.newUpload(t, "restore-source", data))
+	keep := true
+	var elapsed time.Duration
+	h.cfg.Clock = func() time.Time { return h.clock.Now().Add(elapsed) }
+	h.cfg.SourceRetention = func(ctx context.Context, module, id string) (bool, error) {
+		return module == "fixture" && id == v.ID && keep, nil
+	}
+	service, err := media.New(h.repo, h.policy, h.store, h.cfg)
+	must(t, err)
+	defer service.Close(h.ctx)
+	b := media.Binding{Module: "fixture", ResourceID: "proposal"}
+	first, err := service.AttachPublication(h.ctx, user, v.ID, "first-attempt", b)
+	must(t, err)
+	_, err = service.Publish(h.ctx, user, first.ID, "publish-first")
+	must(t, err)
+	err = service.RetirePublication(h.ctx, user, v.ID, "block", b, "first-attempt")
+	must(t, err)
+	file, err := service.GetFile(h.ctx, user, v.FileID)
+	must(t, err)
+	if _, err := service.DeleteFile(h.ctx, user, v.FileID, "purge-retained", file.Revision); !errors.Is(err, media.ErrConflict) {
+		t.Fatal("retained original could be deleted", err)
+	}
+	elapsed = 48 * time.Hour
+	_, err = service.Sweep(h.ctx, 100, "")
+	must(t, err)
+	if err = service.Download(h.ctx, user, first.ID, io.Discard); !errors.Is(err, media.ErrDenied) {
+		t.Fatal("released reference permitted access", err)
+	}
+	next, err := service.AttachPublication(h.ctx, user, v.ID, "restore-attempt", b)
+	must(t, err)
+	if next.ID == first.ID || next.ID != media.PublicationReferenceID(v.ID, b, "restore-attempt") {
+		t.Fatal("restoration reused a retired reference")
+	}
+	_, err = service.Publish(h.ctx, user, next.ID, "publish-next")
+	must(t, err)
+	replay, err := service.AttachPublication(h.ctx, user, v.ID, "restore-attempt", b)
+	if err != nil || replay.ID != next.ID {
+		t.Fatal("publication replay lost binding", err)
+	}
+	var got bytes.Buffer
+	must(t, service.Download(h.ctx, user, next.ID, &got))
+	if !bytes.Equal(got.Bytes(), data) {
+		t.Fatal("restored source differs")
+	}
+	keep = false
+	_, err = service.Release(h.ctx, user, next.ID, "remove")
+	must(t, err)
+	current, err := service.GetVersion(h.ctx, user, v.ID)
+	if err != nil || current.State != "deleting" {
+		t.Fatal("removed source did not enter cleanup", current.State, err)
+	}
+}

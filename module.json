@@ -15,7 +15,8 @@
       "integration_test.go#TestUploadIdempotencyKeyAndVerifyingReconciliation",
       "integration_test.go#TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload",
       "document_test.go#TestDocumentTypeValidation",
-      "integration_test.go#TestReplayExpiryAndReleasedHistory"
+      "integration_test.go#TestReplayExpiryAndReleasedHistory",
+      "integration_test.go#TestRetainedSourceSurvivesReleaseAndRestoresWithFreshPublication"
     ],
     "MEDIA-02": [
       "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle",

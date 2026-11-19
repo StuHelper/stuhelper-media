@@ -8,6 +8,16 @@ import (
 )
 
 func (s *Service) Attach(ctx context.Context, p Principal, id, key string, b Binding) (Reference, error) {
+	return s.attach(ctx, p, id, key, b, false)
+}
+
+// AttachPublication creates the binding for one publication attempt. Retrying
+// that operation reuses the binding. Restoring content starts a new operation.
+func (s *Service) AttachPublication(ctx context.Context, p Principal, id, key string, b Binding) (Reference, error) {
+	return s.attach(ctx, p, id, key, b, true)
+}
+
+func (s *Service) attach(ctx context.Context, p Principal, id, key string, b Binding, publication bool) (Reference, error) {
 	ctx, finish, startErr := s.operation(ctx)
 	if startErr != nil {
 		return Reference{}, startErr
@@ -20,8 +30,16 @@ func (s *Service) Attach(ctx context.Context, p Principal, id, key string, b Bin
 		return out, ErrInput
 	}
 	refID := hash([]string{id, b.Module, b.ResourceID})
+	var request any = b
+	if publication {
+		refID = PublicationReferenceID(id, b, key)
+		request = struct {
+			Binding
+			Publication bool
+		}{b, true}
+	}
 	ref := Reference{ID: refID, VersionID: id, Module: b.Module, ResourceID: b.ResourceID, State: "pending", Revision: 1}
-	e := s.mutation(ctx, p, "media.references.attach", id, key, b, func(tx Transaction) error {
+	e := s.mutation(ctx, p, "media.references.attach", id, key, request, func(tx Transaction) error {
 		var e error
 		f, v, e = s.load(tx, id)
 		if e != nil {
@@ -180,25 +198,72 @@ func (s *Service) Release(ctx context.Context, p Principal, id, key string) (Ref
 		}
 		return s.authorize(ctx, p, "media.references.release", access(f, v, &r))
 	}, func(tx Transaction) (any, error) {
-		if r.State == "released" {
-			return r, nil
-		}
-		r.State = "released"
-		r.Revision++
-		for n := range v.References {
-			if v.References[n].ID == id {
-				v.References[n] = r
-			}
-		}
-		if liveReferences(v) == 0 && !terminal(v) {
-			v.State = "deleting"
-		}
-		if e := s.save(ctx, tx, p, v, "media.reference.released", &r); e != nil {
-			return nil, e
-		}
-		return r, nil
+		return s.releaseBinding(ctx, tx, p, v, r)
 	}, &out)
 	return out, e
+}
+
+// RetirePublication also handles a lost attach response. Loading the version
+// first serializes retirement with any attach still writing this binding.
+func (s *Service) RetirePublication(ctx context.Context, p Principal, versionID, key string, b Binding, publicationKey string) error {
+	if !idOK(versionID) || !idOK(b.Module) || !idOK(b.ResourceID) || !validKey(publicationKey) {
+		return ErrInput
+	}
+	ctx, finish, err := s.operation(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
+	id := PublicationReferenceID(versionID, b, publicationKey)
+	var v Version
+	var ref Reference
+	var found bool
+	var out Reference
+	return s.mutation(ctx, p, "media.references.release", id, key, b, func(tx Transaction) error {
+		f, version, err := s.load(tx, versionID)
+		if err != nil {
+			return err
+		}
+		v = version
+		_, ref, err = tx.Reference(id)
+		found = err == nil
+		if errors.Is(err, ErrNotFound) {
+			ref = Reference{ID: id, VersionID: versionID, FileID: f.ID, Module: b.Module, ResourceID: b.ResourceID}
+		} else if err != nil {
+			return err
+		}
+		return s.authorize(ctx, p, "media.references.release", access(f, v, &ref))
+	}, func(tx Transaction) (any, error) {
+		if !found {
+			return ref, nil
+		}
+		return s.releaseBinding(ctx, tx, p, v, ref)
+	}, &out)
+}
+func (s *Service) releaseBinding(ctx context.Context, tx Transaction, p Principal, v Version, r Reference) (any, error) {
+	if r.State == "released" {
+		return r, nil
+	}
+	r.State = "released"
+	r.Revision++
+	for n := range v.References {
+		if v.References[n].ID == r.ID {
+			v.References[n] = r
+		}
+	}
+	if liveReferences(v) == 0 && !terminal(v) {
+		keep, err := s.retainSource(ctx, v)
+		if err != nil {
+			return nil, err
+		}
+		if !keep {
+			v.State = "deleting"
+		}
+	}
+	if e := s.save(ctx, tx, p, v, "media.reference.released", &r); e != nil {
+		return nil, e
+	}
+	return r, nil
 }
 func (s *Service) Publish(ctx context.Context, p Principal, id, key string) (Reference, error) {
 	ctx, finish, startErr := s.operation(ctx)
