@@ -15,8 +15,7 @@
       "integration_test.go#TestUploadIdempotencyKeyAndVerifyingReconciliation",
       "integration_test.go#TestSweepRespectsActiveUploadLeaseAndConcurrentCancelRejectsUpload",
       "document_test.go#TestDocumentTypeValidation",
-      "integration_test.go#TestReplayExpiryAndReleasedHistory",
-      "integration_test.go#TestRetainedSourceSurvivesReleaseAndRestoresWithFreshPublication"
+      "integration_test.go#TestReplayExpiryAndReleasedHistory"
     ],
     "MEDIA-02": [
       "integration_test.go#TestUploadQuarantineApprovalAndReferenceLifecycle",
@@ -81,9 +80,6 @@
       "reuse_test.go#TestCancelledReuseReleasesOnlyTheNewHandle",
       "http_test.go#TestHTTPReuseReturnsDurableSession"
     ],
-    "MEDIA-17": [
-      "http_test.go#TestHTTPStructuredErrorCodesLimitsAndRetryAfter"
-    ],
     "MEDIA-13": [
       "integration_test.go#TestVersionRejectionReasonCleanupAndPendingApprovalRetention",
       "http_test.go#TestHTTPRejectVersionIdempotencyAndValidation",
@@ -101,6 +97,12 @@
     "MEDIA-16": [
       "integration_test.go#TestOperationsBacklogBlockedRetryBoundedPruneAndReadiness",
       "http_test.go#TestHTTPOperationsRetryPruneAndTraceObservation"
+    ],
+    "MEDIA-17": [
+      "http_test.go#TestHTTPStructuredErrorCodesLimitsAndRetryAfter"
+    ],
+    "MEDIA-18": [
+      "integration_test.go#TestRetainedSourceSurvivesReleaseAndRestoresWithFreshPublication"
     ]
   }
 }
