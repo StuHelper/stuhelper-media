@@ -209,3 +209,69 @@ func TestCancelledReuseReleasesOnlyTheNewHandle(t *testing.T) {
 		t.Fatal("cancelled source content")
 	}
 }
+
+func TestSharedHandleCleanupRetentionPreservesHeldVersionAndOtherHandle(t *testing.T) {
+	h := newFixture(t)
+	data := []byte("shared synthetic version")
+	source := h.newUpload(t, "source", data)
+	r := request(data)
+	r.ReuseExisting = true
+	duplicate, err := h.s.CreateUpload(h.ctx, user, "duplicate", r)
+	must(t, err)
+	if _, err := h.s.CancelUpload(h.ctx, user, duplicate.UploadID, "cancel"); err != nil {
+		t.Fatal(err)
+	}
+	hold := func(kind string) {
+		t.Helper()
+		_, err := h.admin.Exec(`INSERT INTO media.retention_holds(kind,object_id,case_ref,basis,purpose,end_condition,review_at,until_at)
+ VALUES($1,$2,'case','review','verify','resolution',now(),now()+interval '1 day')`, kind, duplicate.ID)
+		must(t, err)
+	}
+	hold("content")
+	h.cycle(t)
+	current, err := h.s.GetVersion(h.ctx, user, duplicate.ID)
+	must(t, err)
+	if current.CleanupComplete {
+		t.Fatal("storage cleanup ran under a content hold")
+	}
+	_, err = h.admin.Exec("DELETE FROM media.retention_holds WHERE kind='content'")
+	must(t, err)
+	h.cycle(t)
+	current, err = h.s.GetVersion(h.ctx, user, duplicate.ID)
+	must(t, err)
+	if !current.CleanupComplete {
+		t.Fatal("released shared handle not confirmed")
+	}
+	if _, err = h.s.Prune(h.ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.s.GetVersion(h.ctx, user, duplicate.ID); err != nil {
+		t.Fatal("tombstone removed before deadline", err)
+	}
+	hold("version")
+	_, err = h.admin.Exec("UPDATE media.versions SET cleaned_at=now()-interval '31 days' WHERE id=$1", duplicate.ID)
+	must(t, err)
+	_, err = h.s.Prune(h.ctx, 10)
+	must(t, err)
+	if _, err = h.s.GetVersion(h.ctx, user, duplicate.ID); err != nil {
+		t.Fatal("held tombstone removed", err)
+	}
+	// Finish the worker acknowledgment after it observes the cleaned revision.
+	h.cycle(t)
+	_, err = h.admin.Exec("DELETE FROM media.retention_holds WHERE kind='version'")
+	must(t, err)
+	_, err = h.s.Prune(h.ctx, 10)
+	must(t, err)
+	if _, err = h.s.GetVersion(h.ctx, user, duplicate.ID); !errors.Is(err, media.ErrNotFound) {
+		var due bool
+		var refs, holds int
+		var job string
+		must(t, h.admin.QueryRow(`SELECT cleaned_at+interval '30 days'<=now(),(SELECT count(*) FROM media.references WHERE version_id=v.id),(SELECT count(*) FROM media.retention_holds WHERE object_id=v.id),COALESCE((SELECT state FROM media.jobs WHERE version_id=v.id),'absent') FROM media.versions v WHERE id=$1`, duplicate.ID).Scan(&due, &refs, &holds, &job))
+		t.Fatal("expired tombstone still accessible", err, due, refs, holds, job)
+	}
+	original, err := h.s.GetVersion(h.ctx, user, source.ID)
+	must(t, err)
+	if original.CleanupComplete || original.Healthy < 1 {
+		t.Fatal("shared source removed")
+	}
+}

@@ -183,6 +183,13 @@ func errorCode(e error) string {
 	return ErrUnavailable.Error()
 }
 func (s *Service) advance(ctx context.Context, j Job, f File, v Version) (bool, error) {
+	if terminal(v) {
+		var allowed bool
+		err := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; allowed, e = tx.BeginVersionCleanup(v.ID); return e })
+		if err != nil || !allowed {
+			return true, err
+		}
+	}
 	if terminal(v) && !v.ObjectIssued {
 		return false, s.cleanupDone(ctx, v.ID)
 	}

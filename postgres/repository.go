@@ -331,23 +331,44 @@ func (t *transaction) OutboxStatus(now time.Time) (media.OutboxStatus, error) {
 	}
 	return out, nil
 }
+func (t *transaction) BeginVersionCleanup(id string) (bool, error) {
+	var already bool
+	if err := t.tx.QueryRowContext(t.ctx, "SELECT cleanup_started FROM media.versions WHERE id=$1 FOR UPDATE", id).Scan(&already); err != nil {
+		return false, safe(err)
+	}
+	if already {
+		return true, nil
+	}
+	res, err := t.tx.ExecContext(t.ctx, `UPDATE media.versions SET cleanup_started=true WHERE id=$1 AND NOT EXISTS(
+ SELECT 1 FROM media.retention_holds WHERE kind='content' AND object_id=$1 AND until_at>statement_timestamp())`, id)
+	if err != nil {
+		return false, safe(err)
+	}
+	n, err := res.RowsAffected()
+	return n == 1, safe(err)
+}
+
 func (t *transaction) PruneHistory(now, cutoff time.Time, limit int) (media.PruneResult, error) {
 	var out media.PruneResult
 	replaysRes, err := t.tx.ExecContext(t.ctx, `WITH doomed AS (
 		SELECT key FROM media.replays
-		WHERE expires_at <= $1 AND expires_at <= $2::timestamptz + interval '24 hours'
-		ORDER BY expires_at,key LIMIT $3 FOR UPDATE SKIP LOCKED
-	) DELETE FROM media.replays r USING doomed d WHERE r.key=d.key`, now, cutoff, limit)
+		WHERE expires_at <= $1
+		ORDER BY expires_at,key LIMIT $2 FOR UPDATE SKIP LOCKED
+	) DELETE FROM media.replays r USING doomed d WHERE r.key=d.key`, now, limit)
 	if err != nil {
 		return out, safe(err)
 	}
 	out.DeletedReplays, _ = replaysRes.RowsAffected()
-	eventsRes, err := t.tx.ExecContext(t.ctx, `WITH doomed AS (SELECT id FROM media.outbox WHERE delivered AND (data->>'time')::timestamptz <= $1 ORDER BY id LIMIT $2) DELETE FROM media.outbox WHERE id IN (SELECT id FROM doomed)`, cutoff, limit)
+	eventsRes, err := t.tx.ExecContext(t.ctx, `WITH doomed AS (SELECT id FROM media.outbox WHERE delivered AND delivered_at <= $1 ORDER BY delivered_at,id LIMIT $2) DELETE FROM media.outbox WHERE id IN (SELECT id FROM doomed)`, cutoff, limit)
 	if err != nil {
 		return out, safe(err)
 	}
-	out.DeletedEvents, _ = eventsRes.RowsAffected()
-	return out, nil
+	out.DeletedEvents, err = eventsRes.RowsAffected()
+	if err != nil {
+		return out, safe(err)
+	}
+	_, err = t.tx.ExecContext(t.ctx, "SELECT media.prune_terminal_metadata($1)", limit)
+	return out, safe(err)
 }
 func (t *transaction) Event(e media.Event) error {
 	e.SpecVersion = "1.0"
@@ -363,7 +384,7 @@ func (t *transaction) Event(e media.Event) error {
 	return t.Audit(e)
 }
 func (t *transaction) Audit(e media.Event) error {
-	return t.save(`INSERT INTO media.audit(id,data) VALUES($1,$2)`, struct {
+	return t.save(`INSERT INTO media.audit(id,data,occurred_at) VALUES($1,$2,($2::jsonb#>>'{event,time}')::timestamptz)`, struct {
 		Event media.Event     `json:"event"`
 		Actor media.Principal `json:"actor"`
 	}{e, e.Actor}, e.ID)
@@ -401,7 +422,7 @@ func (r *Repository) PendingOutbox(ctx context.Context, n int, excluded []string
 	return out, e
 }
 func (r *Repository) AcknowledgeEvent(ctx context.Context, id string) error {
-	_, e := r.DB.ExecContext(ctx, `UPDATE media.outbox SET delivered=true WHERE id=$1`, id)
+	_, e := r.DB.ExecContext(ctx, `UPDATE media.outbox SET delivered=true,delivered_at=COALESCE(delivered_at,statement_timestamp()) WHERE id=$1`, id)
 	return safe(e)
 }
 func (r *Repository) CheckRuntime(ctx context.Context) error {
