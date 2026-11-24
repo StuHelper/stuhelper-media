@@ -426,6 +426,7 @@ type Transaction interface {
 	JobTotals(time.Time) (JobTotals, error)
 	FailedJobs(int, string) ([]Job, error)
 	OutboxStatus(time.Time) (OutboxStatus, error)
+	BeginVersionCleanup(string) (bool, error)
 	PruneHistory(time.Time, time.Time, int) (PruneResult, error)
 	Event(Event) error
 }

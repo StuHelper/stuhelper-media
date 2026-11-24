@@ -180,6 +180,8 @@ func newFixture(t *testing.T) *fixture {
  REVOKE INSERT,UPDATE,DELETE,TRUNCATE ON storage.audit_retention FROM %s;
  REVOKE ALL ON SCHEMA public FROM PUBLIC;`, mediaRole, storageRole, mediaRole, mediaRole, mediaRole, storageRole, storageRole, storageRole, storageRole))
 	must(t, e)
+	_, e = admin.Exec("REVOKE ALL ON media.retention_holds FROM " + mediaRole + "; GRANT SELECT(kind,object_id,until_at) ON media.retention_holds TO " + mediaRole + "; GRANT EXECUTE ON FUNCTION media.prune_terminal_metadata(integer) TO " + mediaRole + "")
+	must(t, e)
 	db, e := sql.Open("pgx", dsn+" dbname="+name+" user="+mediaRole)
 	must(t, e)
 	t.Cleanup(func() { _ = db.Close() })

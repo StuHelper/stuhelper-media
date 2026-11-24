@@ -49,7 +49,7 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 		return nil, ErrInput
 	}
 	if c.HistoryRetention == 0 {
-		c.HistoryRetention = 24 * time.Hour
+		c.HistoryRetention = 90 * 24 * time.Hour
 	}
 	if c.HistoryRetention < time.Minute || c.HistoryRetention > 365*24*time.Hour {
 		return nil, ErrInput

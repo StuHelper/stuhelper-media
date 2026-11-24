@@ -106,6 +106,9 @@
     ],
     "MEDIA-INTAKE-01": [
       "integration_test.go#TestAdmissionRejectsBeforeSessionAndSameRequestResumes"
+    ],
+    "RET-13": [
+      "reuse_test.go#TestSharedHandleCleanupRetentionPreservesHeldVersionAndOtherHandle"
     ]
   }
 }
