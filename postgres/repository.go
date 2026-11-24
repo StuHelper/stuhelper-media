@@ -30,6 +30,7 @@ type fileRecord struct {
 	NextVersion int             `json:"next_version"`
 }
 type versionRecord struct {
+	Prepared    bool   `json:"prepared,omitempty"`
 	Shared      bool   `json:"shared,omitempty"`
 	ReuseSource string `json:"reuse_source,omitempty"`
 	ReuseObject string `json:"reuse_object,omitempty"`
@@ -50,10 +51,11 @@ type versionRecord struct {
 }
 
 func record(v media.Version) versionRecord {
-	return versionRecord{v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.HandleRetainLimit, v.ObjectIssued, v.TypeValidated, v.UploadKey, v.UploadGeneration, v.UploadUntil, v.ChunkKey, v.ChunkOffset, v.ChunkSize, v.ChunkSHA256, v.Profile, v.References}
+	return versionRecord{v.Prepared, v.Shared, v.ReuseSource, v.ReuseObject, v, v.ObjectID, v.HandleRetainLimit, v.ObjectIssued, v.TypeValidated, v.UploadKey, v.UploadGeneration, v.UploadUntil, v.ChunkKey, v.ChunkOffset, v.ChunkSize, v.ChunkSHA256, v.Profile, v.References}
 }
 func (r versionRecord) value() media.Version {
 	v := r.Version
+	v.Prepared = r.Prepared
 	v.Shared = r.Shared
 	v.ReuseSource = r.ReuseSource
 	v.ReuseObject = r.ReuseObject

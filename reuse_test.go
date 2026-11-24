@@ -145,6 +145,7 @@ func TestReuseLostResponseAndRestartDoNotResendOrApprove(t *testing.T) {
 	data := []byte("already published content reused")
 	source := h.ready(t, h.newUpload(t, "source", data))
 	_ = h.bind(t, source, "source-business")
+	h.cycle(t)
 	must(t, h.s.Close(h.ctx))
 	fault := &lostStore{Store: h.store, loseCreate: true}
 	var e error
@@ -156,6 +157,15 @@ func TestReuseLostResponseAndRestartDoNotResendOrApprove(t *testing.T) {
 	must(t, e)
 	if pending.UploadID == "" || pending.State != "verifying" {
 		t.Fatal(pending.State)
+	}
+	// The lost response follows the first verified quarantine copy. Finish its
+	// already-reserved second replica before measuring writes caused by Media recovery.
+	for n := 0; n < 8; n++ {
+		ran, err := h.store.RunOne(h.ctx, "replica-before-restart")
+		must(t, err)
+		if !ran {
+			break
+		}
 	}
 	writes := totalWrites(h)
 	must(t, h.s.Close(h.ctx))

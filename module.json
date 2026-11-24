@@ -103,6 +103,9 @@
     ],
     "MEDIA-18": [
       "integration_test.go#TestRetainedSourceSurvivesReleaseAndRestoresWithFreshPublication"
+    ],
+    "MEDIA-INTAKE-01": [
+      "integration_test.go#TestAdmissionRejectsBeforeSessionAndSameRequestResumes"
     ]
   }
 }
