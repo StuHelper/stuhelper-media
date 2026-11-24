@@ -49,7 +49,7 @@ func New(r Repository, a Authorizer, store Store, c Config) (*Service, error) {
 		return nil, ErrInput
 	}
 	if c.HistoryRetention == 0 {
-		c.HistoryRetention = 24 * time.Hour
+		c.HistoryRetention = 90 * 24 * time.Hour
 	}
 	if c.HistoryRetention < time.Minute || c.HistoryRetention > 365*24*time.Hour {
 		return nil, ErrInput
@@ -309,7 +309,8 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 	}
 	var candidate Version
 	created := false
-	if r.ReuseExisting {
+	recoveredReservation := false
+	if r.ReuseExisting && profile.Quarantine.Class != "restricted" && profile.Published.Class != "restricted" {
 		if !validKey(key) || !p.Valid() {
 			return out, ErrInput
 		}
@@ -321,6 +322,24 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 		if err != nil {
 			return out, err
 		}
+	}
+	// This small receipt survives a lost cross-module response. It expires on
+	// the same schedule as an upload-create replay, so the key can later be reused.
+	var versionID string
+	e = s.mutation(ctx, p, "media.uploads.reservation", r.FileID, key, r, func(tx Transaction) error {
+		if r.FileID != "" {
+			f, err := tx.File(r.FileID)
+			if err != nil {
+				return err
+			}
+			if f.Owner != p {
+				return ErrDenied
+			}
+		}
+		return s.authorize(ctx, p, "media.uploads.create", Access{FileID: r.FileID, Purpose: r.Purpose, Owner: p, Protection: profile.Quarantine})
+	}, func(Transaction) (any, error) { return newID(), nil }, &versionID)
+	if e != nil {
+		return out, e
 	}
 	var f File
 	e = s.mutation(ctx, p, "media.uploads.create", r.FileID, key, r, func(tx Transaction) error {
@@ -366,7 +385,7 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 		if e = tx.SaveFile(f); e != nil {
 			return nil, e
 		}
-		v := Version{Shared: true, ID: newID(), FileID: f.ID, Number: f.NextVersion, Revision: 1, UploadID: newID(), Filename: r.Filename, ContentType: r.ContentType, Size: r.Size, SHA256: r.SHA256, State: "created", ExpiresAt: s.now().Add(s.cfg.UploadTTL), RetainUntil: s.now().Add(s.cfg.UnreferencedTTL), Profile: profile, References: []Reference{}}
+		v := Version{Shared: true, ID: versionID, FileID: f.ID, Number: f.NextVersion, Revision: 1, UploadID: newID(), Filename: r.Filename, ContentType: r.ContentType, Size: r.Size, SHA256: r.SHA256, State: "created", ExpiresAt: s.now().Add(s.cfg.UploadTTL), RetainUntil: s.now().Add(s.cfg.UnreferencedTTL), Profile: profile, References: []Reference{}}
 		created = true
 		if candidate.ID != "" {
 			sourceFile, source, e := s.load(tx, candidate.ID)
@@ -385,6 +404,28 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 				v.State = "verifying"
 			}
 		}
+		// The version ID is stable across a lost cross-module commit. A failed
+		// reservation rolls this file/version transaction back before it is visible.
+		req := storage.CreateRequest{Deduplicate: true, ClientKey: "media:" + v.ID, ReuseFrom: v.ReuseObject,
+			Size: v.Size, SHA256: v.SHA256, Protection: profile.Quarantine, ReserveFor: &profile.Published}
+		prepared, err := s.store.Create(ctx, s.cfg.Actor, "media-create:"+v.ID, req)
+		if err != nil && prepared.ID == "" && (errors.Is(err, storage.ErrUnavailable) || errors.Is(err, storage.ErrUnknown)) {
+			// A failed response can follow a committed reservation. Read back the
+			// immutable caller-scoped handle before accepting or repeating a write.
+			known, readErr := s.store.Status(ctx, s.cfg.Actor, storage.ContentHandleID(s.cfg.Actor, req.ClientKey))
+			if readErr == nil && known.Size == req.Size && known.SHA256 == req.SHA256 && known.Protection == req.Protection && known.State != "deleted" && known.State != "deleting" {
+				prepared, err, recoveredReservation = known, nil, true
+			}
+		}
+		if err != nil && (!v.Reused || prepared.ID == "") {
+			return nil, storeError(err)
+		}
+		if prepared.ID == "" {
+			return nil, ErrUnavailable
+		}
+		v.Prepared = true
+		v.ObjectID = prepared.ID
+		s.markObjectIssued(&v)
 		if e = tx.SaveVersion(v); e != nil {
 			return nil, e
 		}
@@ -398,7 +439,7 @@ func (s *Service) CreateUpload(ctx context.Context, p Principal, key string, r U
 		}
 		return v, nil
 	}, &out)
-	if e == nil && out.Reused {
+	if e == nil && out.Reused && !recoveredReservation {
 		if !created {
 			err := s.repo.Transaction(ctx, func(tx Transaction) error {
 				f, v, err := s.load(tx, out.ID)
@@ -474,6 +515,32 @@ func (s *Service) ListProfiles(ctx context.Context, p Principal) (ProfileCatalog
 		})
 	}
 	return out, nil
+}
+func (s *Service) UploadIntake(ctx context.Context, p Principal, purpose string, size int64) (UploadIntake, error) {
+	profile, ok := s.cfg.Profiles[purpose]
+	if !p.Valid() {
+		return UploadIntake{}, ErrDenied
+	}
+	if !ok || size < 1 {
+		return UploadIntake{}, ErrInput
+	}
+	if err := s.authorize(ctx, p, "media.uploads.create", Access{Purpose: purpose, Owner: p, Protection: profile.Quarantine}); err != nil {
+		return UploadIntake{}, err
+	}
+	if size > profile.MaxSize {
+		return UploadIntake{Mode: "paused", Reason: "file_too_large"}, nil
+	}
+	planner, ok := s.store.(interface {
+		CheckPlacement(context.Context, storage.Principal, []storage.Protection, int64) (storage.Intake, error)
+	})
+	if !ok {
+		return UploadIntake{}, ErrUnavailable
+	}
+	state, err := planner.CheckPlacement(ctx, s.cfg.Actor, []storage.Protection{profile.Quarantine, profile.Published}, size)
+	if err != nil {
+		return UploadIntake{}, storeError(err)
+	}
+	return UploadIntake{Mode: state.Mode, Reason: state.Reason}, nil
 }
 func (s *Service) GetVersion(ctx context.Context, p Principal, id string) (out VersionView, e error) {
 	started := s.now()
@@ -833,6 +900,12 @@ func storeError(e error) error {
 		return ErrInput
 	case errors.Is(e, storage.ErrConflict), errors.Is(e, storage.ErrStale):
 		return ErrConflict
+	case errors.Is(e, storage.ErrRestrictedUnavailable):
+		return ErrRestrictedUnavailable
+	case errors.Is(e, storage.ErrReplicaShortage):
+		return ErrReplicaShortage
+	case errors.Is(e, storage.ErrReplicaSpace):
+		return ErrReplicaSpace
 	case errors.Is(e, storage.ErrCapacity):
 		return ErrCapacity
 	case errors.Is(e, storage.ErrDenied):

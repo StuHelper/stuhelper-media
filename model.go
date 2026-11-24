@@ -28,16 +28,19 @@ var (
 	ErrCapacity    = errors.New("media_capacity_unavailable")
 	ErrExpired     = errors.New("media_upload_expired")
 
-	ErrTransferBusy     error = &codedError{code: "media_transfer_busy", parent: ErrCapacity}
-	ErrOpenUploadsLimit error = &codedError{code: "media_open_uploads_limit", parent: ErrCapacity}
-	ErrFileLimit        error = &codedError{code: "media_file_limit_exceeded", parent: ErrCapacity}
-	ErrVersionLimit     error = &codedError{code: "media_version_limit_exceeded", parent: ErrCapacity}
-	ErrReferenceLimit   error = &codedError{code: "media_reference_limit_exceeded", parent: ErrCapacity}
-	ErrArchiveTooLarge  error = &codedError{code: "media_archive_too_large", parent: ErrCapacity}
-	ErrUploadTooLarge   error = &codedError{code: "media_upload_too_large", parent: ErrInput}
-	ErrTooLarge               = ErrUploadTooLarge
-	ErrFilenameInvalid  error = &codedError{code: "media_filename_invalid", parent: ErrInput}
-	ErrTypeNotAllowed   error = &codedError{code: "media_type_not_allowed", parent: ErrInput}
+	ErrRestrictedUnavailable error = &codedError{code: "media_storage_restricted_encryption_unavailable", parent: ErrUnavailable}
+	ErrReplicaShortage       error = &codedError{code: "media_storage_replica_shortage", parent: ErrCapacity}
+	ErrReplicaSpace          error = &codedError{code: "media_storage_replica_space", parent: ErrCapacity}
+	ErrTransferBusy          error = &codedError{code: "media_transfer_busy", parent: ErrCapacity}
+	ErrOpenUploadsLimit      error = &codedError{code: "media_open_uploads_limit", parent: ErrCapacity}
+	ErrFileLimit             error = &codedError{code: "media_file_limit_exceeded", parent: ErrCapacity}
+	ErrVersionLimit          error = &codedError{code: "media_version_limit_exceeded", parent: ErrCapacity}
+	ErrReferenceLimit        error = &codedError{code: "media_reference_limit_exceeded", parent: ErrCapacity}
+	ErrArchiveTooLarge       error = &codedError{code: "media_archive_too_large", parent: ErrCapacity}
+	ErrUploadTooLarge        error = &codedError{code: "media_upload_too_large", parent: ErrInput}
+	ErrTooLarge                    = ErrUploadTooLarge
+	ErrFilenameInvalid       error = &codedError{code: "media_filename_invalid", parent: ErrInput}
+	ErrTypeNotAllowed        error = &codedError{code: "media_type_not_allowed", parent: ErrInput}
 )
 
 type codedError struct {
@@ -175,6 +178,7 @@ type File struct {
 	LatestVersion *VersionSummary `json:"latest_version,omitempty"`
 }
 type Version struct {
+	Prepared        bool      `json:"-"`
 	Reused          bool      `json:"reused,omitempty"`
 	Shared          bool      `json:"-"`
 	ReuseSource     string    `json:"-"`
@@ -228,6 +232,10 @@ type UploadRequest struct {
 	ContentType   string `json:"content_type"`
 	Size          int64  `json:"size"`
 	SHA256        string `json:"sha256"`
+}
+type UploadIntake struct {
+	Mode   string `json:"mode"`
+	Reason string `json:"reason,omitempty"`
 }
 type ProfileSummary struct {
 	Purpose      string   `json:"purpose"`
@@ -418,6 +426,7 @@ type Transaction interface {
 	JobTotals(time.Time) (JobTotals, error)
 	FailedJobs(int, string) ([]Job, error)
 	OutboxStatus(time.Time) (OutboxStatus, error)
+	BeginVersionCleanup(string) (bool, error)
 	PruneHistory(time.Time, time.Time, int) (PruneResult, error)
 	Event(Event) error
 }

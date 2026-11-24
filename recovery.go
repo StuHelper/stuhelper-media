@@ -183,6 +183,13 @@ func errorCode(e error) string {
 	return ErrUnavailable.Error()
 }
 func (s *Service) advance(ctx context.Context, j Job, f File, v Version) (bool, error) {
+	if terminal(v) {
+		var allowed bool
+		err := s.repo.Transaction(ctx, func(tx Transaction) error { var e error; allowed, e = tx.BeginVersionCleanup(v.ID); return e })
+		if err != nil || !allowed {
+			return true, err
+		}
+	}
 	if terminal(v) && !v.ObjectIssued {
 		return false, s.cleanupDone(ctx, v.ID)
 	}
@@ -232,6 +239,9 @@ func (s *Service) advance(ctx context.Context, j Job, f File, v Version) (bool, 
 	if st.State == "deleting" || st.State == "deleted" {
 		return false, ErrConflict
 	}
+	if v.Prepared && !v.TypeValidated {
+		return false, nil
+	}
 	if !v.TypeValidated {
 		return false, ErrIntegrity
 	}
@@ -254,7 +264,7 @@ func (s *Service) advance(ctx context.Context, j Job, f File, v Version) (bool, 
 			return false, storeError(e)
 		}
 	}
-	if st.Healthy < st.Policy.Publish {
+	if !st.CanReference() {
 		return true, nil
 	}
 	return false, s.updateObserved(ctx, v, "ready")

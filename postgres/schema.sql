@@ -67,3 +67,83 @@ CREATE INDEX IF NOT EXISTS media_outbox_pending_seq ON media.outbox(seq) WHERE N
 CREATE TABLE IF NOT EXISTS media.audit (id text PRIMARY KEY, data jsonb NOT NULL);
 REVOKE ALL ON SCHEMA media FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA media FROM PUBLIC;
+
+ALTER TABLE media.versions ADD COLUMN IF NOT EXISTS cleanup_started boolean NOT NULL DEFAULT false;
+ALTER TABLE media.versions ADD COLUMN IF NOT EXISTS cleaned_at timestamptz;
+CREATE INDEX IF NOT EXISTS media_cleaned_versions ON media.versions(cleaned_at,id) WHERE cleaned_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS media_cleaned_event ON media.audit((data#>>'{event,subject}')) WHERE data#>>'{event,type}'='media.version.cleaned';
+CREATE INDEX IF NOT EXISTS media_legacy_cleanup_pending ON media.versions(id) WHERE cleaned_at IS NULL AND data @> '{"cleanup_complete":true}';
+CREATE OR REPLACE FUNCTION media.record_cleanup_time() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ IF NEW.data @> '{"cleanup_complete":true}' AND NEW.cleaned_at IS NULL THEN NEW.cleaned_at:=statement_timestamp(); END IF;
+ RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS media_cleanup_confirmed ON media.versions;
+CREATE TRIGGER media_cleanup_confirmed BEFORE INSERT OR UPDATE OF data ON media.versions FOR EACH ROW EXECUTE FUNCTION media.record_cleanup_time();
+
+ALTER TABLE media.outbox ADD COLUMN IF NOT EXISTS delivered_at timestamptz;
+CREATE INDEX IF NOT EXISTS media_pending_delivery_time ON media.outbox(id) WHERE delivered AND delivered_at IS NULL;
+CREATE INDEX IF NOT EXISTS media_delivered_expiry ON media.outbox(delivered_at,id) WHERE delivered;
+
+CREATE TABLE IF NOT EXISTS media.retention_holds(
+ kind text NOT NULL CHECK(kind IN ('content','version','audit','event','replay')),object_id text NOT NULL,case_ref text NOT NULL,
+ basis text NOT NULL,purpose text NOT NULL,end_condition text NOT NULL,review_at timestamptz NOT NULL,
+ held_evidence jsonb, until_at timestamptz NOT NULL CHECK(isfinite(until_at) AND review_at<=until_at),PRIMARY KEY(kind,object_id,case_ref)
+);
+REVOKE ALL ON media.retention_holds FROM PUBLIC;
+CREATE OR REPLACE FUNCTION media.validate_retention_hold() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ IF TG_OP='UPDATE' AND (OLD.kind,OLD.object_id,OLD.case_ref)<>(NEW.kind,NEW.object_id,NEW.case_ref) THEN RAISE EXCEPTION 'immutable hold scope'; END IF;
+ CASE NEW.kind
+ WHEN 'content' THEN PERFORM id FROM media.versions WHERE id=NEW.object_id AND NOT cleanup_started AND cleaned_at IS NULL FOR UPDATE;
+ WHEN 'version' THEN PERFORM id FROM media.versions WHERE id=NEW.object_id FOR UPDATE;
+ WHEN 'event' THEN
+   IF TG_OP='UPDATE' THEN NEW.held_evidence:=OLD.held_evidence; RETURN NEW; END IF;
+   SELECT data INTO NEW.held_evidence FROM media.outbox WHERE id=NEW.object_id FOR UPDATE;
+ WHEN 'audit' THEN
+   IF TG_OP='UPDATE' THEN NEW.held_evidence:=OLD.held_evidence; RETURN NEW; END IF;
+   SELECT data INTO NEW.held_evidence FROM media.audit WHERE id=NEW.object_id FOR UPDATE;
+ WHEN 'replay' THEN
+   IF TG_OP='UPDATE' THEN NEW.held_evidence:=OLD.held_evidence; RETURN NEW; END IF;
+   SELECT data INTO NEW.held_evidence FROM media.replays WHERE key=NEW.object_id FOR UPDATE;
+ END CASE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'retention target unavailable' USING ERRCODE='22023'; END IF;
+ RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS validate_retention_hold ON media.retention_holds;
+CREATE TRIGGER validate_retention_hold BEFORE INSERT OR UPDATE ON media.retention_holds FOR EACH ROW EXECUTE FUNCTION media.validate_retention_hold();
+
+ALTER TABLE media.audit ADD COLUMN IF NOT EXISTS occurred_at timestamptz;
+CREATE INDEX IF NOT EXISTS media_audit_legacy_time ON media.audit(id) WHERE occurred_at IS NULL AND data#>>'{event,time}' IS NOT NULL;
+CREATE INDEX IF NOT EXISTS media_audit_retention ON media.audit(occurred_at,id);
+CREATE OR REPLACE FUNCTION media.prune_terminal_metadata(p_limit integer) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET TimeZone='Asia/Shanghai' AS $$
+DECLARE item record;
+BEGIN
+ IF p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 1000 THEN RAISE EXCEPTION 'invalid limit'; END IF;
+UPDATE media.versions v SET cleaned_at=COALESCE((SELECT min((a.data#>>'{event,time}')::timestamptz) FROM media.audit a
+ WHERE a.data#>>'{event,type}'='media.version.cleaned' AND a.data#>>'{event,subject}'=v.id),statement_timestamp()),cleanup_started=true
+ WHERE v.id IN (SELECT id FROM media.versions WHERE cleaned_at IS NULL AND data @> '{"cleanup_complete":true}' ORDER BY id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+
+ UPDATE media.audit SET occurred_at=(data#>>'{event,time}')::timestamptz WHERE id IN
+ (SELECT id FROM media.audit WHERE occurred_at IS NULL AND data#>>'{event,time}' IS NOT NULL ORDER BY id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+ UPDATE media.outbox SET delivered_at=statement_timestamp() WHERE id IN
+ (SELECT id FROM media.outbox WHERE delivered AND delivered_at IS NULL ORDER BY id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+ FOR item IN SELECT id,file_id FROM media.versions v WHERE cleaned_at+interval '30 days'<=statement_timestamp()
+   AND NOT EXISTS(SELECT 1 FROM media.retention_holds h WHERE h.kind IN ('content','version') AND h.object_id=v.id AND h.until_at>statement_timestamp())
+   AND NOT EXISTS(SELECT 1 FROM media.references r WHERE r.version_id=v.id AND r.data->>'state'<>'released')
+   AND NOT EXISTS(SELECT 1 FROM media.jobs j WHERE j.version_id=v.id AND j.state<>'done')
+   ORDER BY cleaned_at,id LIMIT p_limit FOR UPDATE OF v SKIP LOCKED
+ LOOP
+   IF EXISTS(SELECT 1 FROM media.retention_holds h WHERE h.kind IN ('content','version') AND h.object_id=item.id AND h.until_at>statement_timestamp()) THEN CONTINUE; END IF;
+   DELETE FROM media.jobs WHERE version_id=item.id AND state='done';
+   DELETE FROM media.references WHERE version_id=item.id AND data->>'state'='released';
+   DELETE FROM media.versions WHERE id=item.id;
+   DELETE FROM media.files f WHERE f.id=item.file_id AND f.data @> '{"retired":true}' AND NOT EXISTS(SELECT 1 FROM media.versions v WHERE v.file_id=f.id);
+ END LOOP;
+ DELETE FROM media.audit WHERE id IN (
+   SELECT id FROM media.audit WHERE occurred_at<statement_timestamp()-interval '11 months' AND occurred_at+interval '12 months'<=statement_timestamp()
+   ORDER BY occurred_at,id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+ DELETE FROM media.retention_holds WHERE ctid IN (SELECT ctid FROM media.retention_holds WHERE until_at<=statement_timestamp() ORDER BY until_at LIMIT p_limit FOR UPDATE SKIP LOCKED);
+END $$;
+REVOKE ALL ON FUNCTION media.prune_terminal_metadata(integer) FROM PUBLIC;

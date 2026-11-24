@@ -2165,6 +2165,138 @@
           }
         }
       }
+    },
+    "/api/v1/media/profiles/{purpose}/intake": {
+      "get": {
+        "operationId": "GetUploadIntake",
+        "responses": {
+          "200": {
+            "description": "Authorized upload purposes and package limits for the current user without internal storage classifications.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadIntake"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sanitized failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "purpose",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": true,
+            "description": "File size in bytes for the current placement estimate.",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1,
+              "maximum": 1073741824
+            }
+          }
+        ],
+        "description": "Check the requested size against current quarantine and publication placement for the authenticated purpose."
+      }
     }
   },
   "components": {
@@ -2922,7 +3054,10 @@
           "media_transfer_busy",
           "media_capacity_unavailable",
           "media_unavailable",
-          "method_not_allowed"
+          "method_not_allowed",
+          "media_storage_replica_shortage",
+          "media_storage_replica_space",
+          "media_storage_restricted_encryption_unavailable"
         ]
       },
       "JobTotals": {
@@ -3094,6 +3229,33 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "UploadIntake": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "bhpan",
+              "mixed",
+              "cos_only",
+              "paused"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "storage_replica_shortage",
+              "storage_replica_space",
+              "file_too_large",
+              "storage_restricted_encryption_unavailable"
+            ]
           }
         }
       }
