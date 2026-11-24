@@ -191,6 +191,14 @@ func (h *handler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 	out, e := h.s.ListProfiles(r.Context(), principalOf(r))
 	h.respond(w, r, out, e)
 }
+func (h *handler) GetUploadIntake(w http.ResponseWriter, r *http.Request, purpose string, params sdk.GetUploadIntakeParams) {
+	if len(r.URL.Query()) != 1 || len(r.URL.Query()["size"]) != 1 {
+		h.respond(w, r, nil, media.ErrInput)
+		return
+	}
+	out, err := h.s.UploadIntake(r.Context(), principalOf(r), purpose, params.Size)
+	h.respond(w, r, out, err)
+}
 func (h *handler) AppendUploadContent(w http.ResponseWriter, r *http.Request, id string, params sdk.AppendUploadContentParams) {
 	typ, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || typ != "application/octet-stream" || len(r.Header.Values("Upload-Offset")) != 1 || params.UploadOffset < 0 {
@@ -486,6 +494,9 @@ func failure(w http.ResponseWriter, e error) {
 		{media.ErrType, 422, 0},
 		{media.ErrOpenUploadsLimit, 429, 0},
 		{media.ErrTransferBusy, 503, 3},
+		{media.ErrReplicaShortage, 503, 0},
+		{media.ErrReplicaSpace, 503, 0},
+		{media.ErrRestrictedUnavailable, 503, 0},
 		{media.ErrCapacity, 503, 5},
 	} {
 		if errors.Is(e, entry.e) {

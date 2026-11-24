@@ -326,6 +326,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/media/profiles/{purpose}/intake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Check the requested size against current quarantine and publication placement for the authenticated purpose. */
+        get: operations["GetUploadIntake"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -522,7 +539,7 @@ export interface components {
         /** @enum {string} */
         VersionErrorCode: "" | "media_integrity_failed" | "media_content_type_rejected" | "media_upload_expired" | "media_upload_result_unconfirmed" | "media_unavailable" | "media_permission_denied" | "media_conflict" | "media_capacity_unavailable" | "media_transfer_busy";
         /** @enum {string} */
-        ProblemCode: "authentication_required" | "media_invalid_input" | "media_filename_invalid" | "media_type_not_allowed" | "media_permission_denied" | "media_not_found" | "media_conflict" | "media_upload_expired" | "media_upload_too_large" | "media_archive_too_large" | "media_integrity_failed" | "media_content_type_rejected" | "media_open_uploads_limit" | "media_file_limit_exceeded" | "media_version_limit_exceeded" | "media_reference_limit_exceeded" | "media_transfer_busy" | "media_capacity_unavailable" | "media_unavailable" | "method_not_allowed";
+        ProblemCode: "authentication_required" | "media_invalid_input" | "media_filename_invalid" | "media_type_not_allowed" | "media_permission_denied" | "media_not_found" | "media_conflict" | "media_upload_expired" | "media_upload_too_large" | "media_archive_too_large" | "media_integrity_failed" | "media_content_type_rejected" | "media_open_uploads_limit" | "media_file_limit_exceeded" | "media_version_limit_exceeded" | "media_reference_limit_exceeded" | "media_transfer_busy" | "media_capacity_unavailable" | "media_unavailable" | "method_not_allowed" | "media_storage_replica_shortage" | "media_storage_replica_space" | "media_storage_restricted_encryption_unavailable";
         JobTotals: {
             /** Format: int64 */
             pending: number;
@@ -575,6 +592,12 @@ export interface components {
             deleted_replays: number;
             /** Format: int64 */
             deleted_events: number;
+        };
+        UploadIntake: {
+            /** @enum {string} */
+            mode: "bhpan" | "mixed" | "cos_only" | "paused";
+            /** @enum {string} */
+            reason?: "storage_replica_shortage" | "storage_replica_space" | "file_too_large" | "storage_restricted_encryption_unavailable";
         };
     };
     responses: {
@@ -1915,6 +1938,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PruneResult"];
+                };
+            };
+            /** @description Sanitized failure */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sanitized failure */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    GetUploadIntake: {
+        parameters: {
+            query: {
+                /** @description File size in bytes for the current placement estimate. */
+                size: number;
+            };
+            header?: never;
+            path: {
+                purpose: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized upload purposes and package limits for the current user without internal storage classifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadIntake"];
                 };
             };
             /** @description Sanitized failure */

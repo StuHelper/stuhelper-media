@@ -232,6 +232,9 @@ func (s *Service) advance(ctx context.Context, j Job, f File, v Version) (bool, 
 	if st.State == "deleting" || st.State == "deleted" {
 		return false, ErrConflict
 	}
+	if v.Prepared && !v.TypeValidated {
+		return false, nil
+	}
 	if !v.TypeValidated {
 		return false, ErrIntegrity
 	}
@@ -254,7 +257,7 @@ func (s *Service) advance(ctx context.Context, j Job, f File, v Version) (bool, 
 			return false, storeError(e)
 		}
 	}
-	if st.Healthy < st.Policy.Publish {
+	if !st.CanReference() {
 		return true, nil
 	}
 	return false, s.updateObserved(ctx, v, "ready")

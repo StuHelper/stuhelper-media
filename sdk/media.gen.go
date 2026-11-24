@@ -22,26 +22,29 @@ import (
 
 // Defines values for ProblemCode.
 const (
-	ProblemCodeAuthenticationRequired      ProblemCode = "authentication_required"
-	ProblemCodeMediaArchiveTooLarge        ProblemCode = "media_archive_too_large"
-	ProblemCodeMediaCapacityUnavailable    ProblemCode = "media_capacity_unavailable"
-	ProblemCodeMediaConflict               ProblemCode = "media_conflict"
-	ProblemCodeMediaContentTypeRejected    ProblemCode = "media_content_type_rejected"
-	ProblemCodeMediaFileLimitExceeded      ProblemCode = "media_file_limit_exceeded"
-	ProblemCodeMediaFilenameInvalid        ProblemCode = "media_filename_invalid"
-	ProblemCodeMediaIntegrityFailed        ProblemCode = "media_integrity_failed"
-	ProblemCodeMediaInvalidInput           ProblemCode = "media_invalid_input"
-	ProblemCodeMediaNotFound               ProblemCode = "media_not_found"
-	ProblemCodeMediaOpenUploadsLimit       ProblemCode = "media_open_uploads_limit"
-	ProblemCodeMediaPermissionDenied       ProblemCode = "media_permission_denied"
-	ProblemCodeMediaReferenceLimitExceeded ProblemCode = "media_reference_limit_exceeded"
-	ProblemCodeMediaTransferBusy           ProblemCode = "media_transfer_busy"
-	ProblemCodeMediaTypeNotAllowed         ProblemCode = "media_type_not_allowed"
-	ProblemCodeMediaUnavailable            ProblemCode = "media_unavailable"
-	ProblemCodeMediaUploadExpired          ProblemCode = "media_upload_expired"
-	ProblemCodeMediaUploadTooLarge         ProblemCode = "media_upload_too_large"
-	ProblemCodeMediaVersionLimitExceeded   ProblemCode = "media_version_limit_exceeded"
-	ProblemCodeMethodNotAllowed            ProblemCode = "method_not_allowed"
+	ProblemCodeAuthenticationRequired                      ProblemCode = "authentication_required"
+	ProblemCodeMediaArchiveTooLarge                        ProblemCode = "media_archive_too_large"
+	ProblemCodeMediaCapacityUnavailable                    ProblemCode = "media_capacity_unavailable"
+	ProblemCodeMediaConflict                               ProblemCode = "media_conflict"
+	ProblemCodeMediaContentTypeRejected                    ProblemCode = "media_content_type_rejected"
+	ProblemCodeMediaFileLimitExceeded                      ProblemCode = "media_file_limit_exceeded"
+	ProblemCodeMediaFilenameInvalid                        ProblemCode = "media_filename_invalid"
+	ProblemCodeMediaIntegrityFailed                        ProblemCode = "media_integrity_failed"
+	ProblemCodeMediaInvalidInput                           ProblemCode = "media_invalid_input"
+	ProblemCodeMediaNotFound                               ProblemCode = "media_not_found"
+	ProblemCodeMediaOpenUploadsLimit                       ProblemCode = "media_open_uploads_limit"
+	ProblemCodeMediaPermissionDenied                       ProblemCode = "media_permission_denied"
+	ProblemCodeMediaReferenceLimitExceeded                 ProblemCode = "media_reference_limit_exceeded"
+	ProblemCodeMediaStorageReplicaShortage                 ProblemCode = "media_storage_replica_shortage"
+	ProblemCodeMediaStorageReplicaSpace                    ProblemCode = "media_storage_replica_space"
+	ProblemCodeMediaStorageRestrictedEncryptionUnavailable ProblemCode = "media_storage_restricted_encryption_unavailable"
+	ProblemCodeMediaTransferBusy                           ProblemCode = "media_transfer_busy"
+	ProblemCodeMediaTypeNotAllowed                         ProblemCode = "media_type_not_allowed"
+	ProblemCodeMediaUnavailable                            ProblemCode = "media_unavailable"
+	ProblemCodeMediaUploadExpired                          ProblemCode = "media_upload_expired"
+	ProblemCodeMediaUploadTooLarge                         ProblemCode = "media_upload_too_large"
+	ProblemCodeMediaVersionLimitExceeded                   ProblemCode = "media_version_limit_exceeded"
+	ProblemCodeMethodNotAllowed                            ProblemCode = "method_not_allowed"
 )
 
 // Valid indicates whether the value is a known member of the ProblemCode enum.
@@ -72,6 +75,12 @@ func (e ProblemCode) Valid() bool {
 	case ProblemCodeMediaPermissionDenied:
 		return true
 	case ProblemCodeMediaReferenceLimitExceeded:
+		return true
+	case ProblemCodeMediaStorageReplicaShortage:
+		return true
+	case ProblemCodeMediaStorageReplicaSpace:
+		return true
+	case ProblemCodeMediaStorageRestrictedEncryptionUnavailable:
 		return true
 	case ProblemCodeMediaTransferBusy:
 		return true
@@ -170,6 +179,54 @@ func (e StorageState) Valid() bool {
 	case StorageStateReady:
 		return true
 	case StorageStateUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UploadIntakeMode.
+const (
+	Bhpan   UploadIntakeMode = "bhpan"
+	CosOnly UploadIntakeMode = "cos_only"
+	Mixed   UploadIntakeMode = "mixed"
+	Paused  UploadIntakeMode = "paused"
+)
+
+// Valid indicates whether the value is a known member of the UploadIntakeMode enum.
+func (e UploadIntakeMode) Valid() bool {
+	switch e {
+	case Bhpan:
+		return true
+	case CosOnly:
+		return true
+	case Mixed:
+		return true
+	case Paused:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UploadIntakeReason.
+const (
+	FileTooLarge                           UploadIntakeReason = "file_too_large"
+	StorageReplicaShortage                 UploadIntakeReason = "storage_replica_shortage"
+	StorageReplicaSpace                    UploadIntakeReason = "storage_replica_space"
+	StorageRestrictedEncryptionUnavailable UploadIntakeReason = "storage_restricted_encryption_unavailable"
+)
+
+// Valid indicates whether the value is a known member of the UploadIntakeReason enum.
+func (e UploadIntakeReason) Valid() bool {
+	switch e {
+	case FileTooLarge:
+		return true
+	case StorageReplicaShortage:
+		return true
+	case StorageReplicaSpace:
+		return true
+	case StorageRestrictedEncryptionUnavailable:
 		return true
 	default:
 		return false
@@ -470,6 +527,18 @@ type Revision struct {
 // StorageState defines model for StorageState.
 type StorageState string
 
+// UploadIntake defines model for UploadIntake.
+type UploadIntake struct {
+	Mode   UploadIntakeMode    `json:"mode"`
+	Reason *UploadIntakeReason `json:"reason,omitempty"`
+}
+
+// UploadIntakeMode defines model for UploadIntake.Mode.
+type UploadIntakeMode string
+
+// UploadIntakeReason defines model for UploadIntake.Reason.
+type UploadIntakeReason string
+
 // UploadRequest defines model for UploadRequest.
 type UploadRequest struct {
 	ContentType string  `json:"content_type"`
@@ -589,6 +658,12 @@ type GetOperationsParams struct {
 // RetryJobParams defines parameters for RetryJob.
 type RetryJobParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// GetUploadIntakeParams defines parameters for GetUploadIntake.
+type GetUploadIntakeParams struct {
+	// Size File size in bytes for the current placement estimate.
+	Size int64 `form:"size" json:"size"`
 }
 
 // ReleaseReferenceParams defines parameters for ReleaseReference.
@@ -819,6 +894,11 @@ type ClientInterface interface {
 
 	// ListProfiles performs a GET /api/v1/media/profiles (the `ListProfiles` operationId) request.
 	ListProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetUploadIntake performs a GET /api/v1/media/profiles/{purpose}/intake (the `GetUploadIntake` operationId) request.
+	//
+	// Check the requested size against current quarantine and publication placement for the authenticated purpose.
+	GetUploadIntake(ctx context.Context, purpose string, params *GetUploadIntakeParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReleaseReference performs a DELETE /api/v1/media/references/{id} (the `ReleaseReference` operationId) request.
 	ReleaseReference(ctx context.Context, id string, params *ReleaseReferenceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1097,6 +1177,21 @@ func (c *Client) PruneHistory(ctx context.Context, body PruneHistoryJSONRequestB
 // ListProfiles performs a GET /api/v1/media/profiles (the `ListProfiles` operationId) request.
 func (c *Client) ListProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListProfilesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetUploadIntake performs a GET /api/v1/media/profiles/{purpose}/intake (the `GetUploadIntake` operationId) request.
+//
+// Check the requested size against current quarantine and publication placement for the authenticated purpose.
+func (c *Client) GetUploadIntake(ctx context.Context, purpose string, params *GetUploadIntakeParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetUploadIntakeRequest(c.Server, purpose, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1858,6 +1953,63 @@ func NewListProfilesRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetUploadIntakeRequest constructs an http.Request for the GetUploadIntake method
+func NewGetUploadIntakeRequest(server string, purpose string, params *GetUploadIntakeParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "purpose", purpose, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/media/profiles/%s/intake", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "size", params.Size, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -2771,6 +2923,13 @@ type ClientWithResponsesInterface interface {
 	//
 	// Returns a wrapper object for the known response body format(s).
 	ListProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfilesResponse, error)
+
+	// GetUploadIntakeWithResponse performs a GET /api/v1/media/profiles/{purpose}/intake (the `GetUploadIntake` operationId) request.
+	//
+	// Check the requested size against current quarantine and publication placement for the authenticated purpose.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	GetUploadIntakeWithResponse(ctx context.Context, purpose string, params *GetUploadIntakeParams, reqEditors ...RequestEditorFn) (*GetUploadIntakeResponse, error)
 
 	// ReleaseReferenceWithResponse performs a DELETE /api/v1/media/references/{id} (the `ReleaseReference` operationId) request.
 	//
@@ -3978,6 +4137,110 @@ func (r ListProfilesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListProfilesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetUploadIntakeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UploadIntake
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Problem
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Problem
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Problem
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Problem
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Problem
+	// JSON410 the response for an HTTP 410 `application/json` response
+	JSON410 *Problem
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Problem
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Problem
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON200() *UploadIntake {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON400() *Problem {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON401() *Problem {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON403() *Problem {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON404() *Problem {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON409() *Problem {
+	return r.JSON409
+}
+
+// GetJSON410 returns the response for an HTTP 410 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON410() *Problem {
+	return r.JSON410
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON413() *Problem {
+	return r.JSON413
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON422() *Problem {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GetUploadIntakeResponse) GetJSON503() *Problem {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r GetUploadIntakeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetUploadIntakeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetUploadIntakeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetUploadIntakeResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5849,6 +6112,19 @@ func (c *ClientWithResponses) ListProfilesWithResponse(ctx context.Context, reqE
 	return ParseListProfilesResponse(rsp)
 }
 
+// GetUploadIntakeWithResponse performs a GET /api/v1/media/profiles/{purpose}/intake (the `GetUploadIntake` operationId) request.
+//
+// Check the requested size against current quarantine and publication placement for the authenticated purpose.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) GetUploadIntakeWithResponse(ctx context.Context, purpose string, params *GetUploadIntakeParams, reqEditors ...RequestEditorFn) (*GetUploadIntakeResponse, error) {
+	rsp, err := c.GetUploadIntake(ctx, purpose, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetUploadIntakeResponse(rsp)
+}
+
 // ReleaseReferenceWithResponse performs a DELETE /api/v1/media/references/{id} (the `ReleaseReference` operationId) request.
 //
 // Returns a wrapper object for the known response body format(s).
@@ -6981,6 +7257,95 @@ func ParseListProfilesResponse(rsp *http.Response) (*ListProfilesResponse, error
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest ProfileCatalog
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetUploadIntakeResponse parses an HTTP response from a GetUploadIntakeWithResponse call
+func ParseGetUploadIntakeResponse(rsp *http.Response) (*GetUploadIntakeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetUploadIntakeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UploadIntake
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8684,6 +9049,9 @@ type ServerInterface interface {
 	// (GET /api/v1/media/profiles)
 	ListProfiles(w http.ResponseWriter, r *http.Request)
 
+	// (GET /api/v1/media/profiles/{purpose}/intake)
+	GetUploadIntake(w http.ResponseWriter, r *http.Request, purpose string, params GetUploadIntakeParams)
+
 	// (DELETE /api/v1/media/references/{id})
 	ReleaseReference(w http.ResponseWriter, r *http.Request, id string, params ReleaseReferenceParams)
 
@@ -9092,6 +9460,48 @@ func (siw *ServerInterfaceWrapper) ListProfiles(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListProfiles(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUploadIntake operation middleware
+func (siw *ServerInterfaceWrapper) GetUploadIntake(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "purpose" -------------
+	var purpose string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "purpose", r.PathValue("purpose"), &purpose, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "purpose", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetUploadIntakeParams
+
+	// ------------- Required query parameter "size" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "size", r.URL.Query(), &params.Size, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "size"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "size", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUploadIntake(w, r, purpose, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9999,6 +10409,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/media/operations/jobs/{version_id}/retry", wrapper.RetryJob)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/media/operations/prune", wrapper.PruneHistory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/profiles", wrapper.ListProfiles)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/profiles/{purpose}/intake", wrapper.GetUploadIntake)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/media/references/{id}", wrapper.ReleaseReference)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/references/{id}", wrapper.GetReference)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/media/references/{id}/content", wrapper.DownloadReference)

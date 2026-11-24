@@ -13,6 +13,7 @@ import (
 	mp "github.com/StuHelper/stuhelper-media/postgres"
 	storage "github.com/StuHelper/stuhelper-storage"
 	sp "github.com/StuHelper/stuhelper-storage/postgres"
+	"github.com/StuHelper/stuhelper-storage/storagetest"
 	"github.com/jackc/pgx/v5/stdlib"
 	"io"
 	"os"
@@ -71,6 +72,7 @@ func (storagePolicy) Authorize(_ context.Context, p storage.Principal, action, i
 }
 
 type provider struct {
+	clock  *clock
 	mu     sync.Mutex
 	files  map[string][]byte
 	writes map[string]int
@@ -78,7 +80,7 @@ type provider struct {
 }
 
 func (p *provider) Verify(_ context.Context, i storage.Instance) (storage.InstanceEvidence, error) {
-	return storage.InstanceEvidence{AccountDomain: "fixture:" + i.ID, ProviderFree: 1 << 20, VerifiedAt: time.Now()}, nil
+	return storage.InstanceEvidence{AccountDomain: "fixture:" + i.ID, ProviderFree: 1 << 20, Quota: &storage.ProviderQuotaSample{TotalBytes: 1 << 20}, VerifiedAt: p.clock.Now()}, nil
 }
 func (p *provider) Resolve(context.Context, storage.Instance) (storage.Driver, error) { return p, nil }
 func (p *provider) Find(_ context.Context, i storage.Instance, intent string, _ storage.Locator) (storage.Locator, error) {
@@ -190,6 +192,7 @@ func newFixture(t *testing.T) *fixture {
 	p := &provider{files: map[string][]byte{}, writes: map[string]int{}}
 	sr := &sp.Repository{DB: storageDB}
 	must(t, sr.CheckRuntime(context.Background()))
+	p.clock = c
 	st, e := storage.New(sr, storagePolicy{}, p, p, storage.Config{Clock: c.Now, MaxObjectSize: 1 << 20, TemporaryDirectory: t.TempDir(), ParallelTransfers: 4, Lease: time.Minute, VerificationAge: time.Hour, MaxAttempts: 3})
 	must(t, e)
 	t.Cleanup(func() { _ = st.Close(context.Background()) })
@@ -204,13 +207,15 @@ func newFixture(t *testing.T) *fixture {
 	for n := 0; n < 3; n++ {
 		id := fmt.Sprintf("account-%d", n)
 		admissions := []storage.Admission{{Class: "public", Scope: "school", Plaintext: true, ExpiresAt: c.Now().Add(48 * time.Hour)}}
-		kind := "contributor"
-		if n == 0 {
-			kind = "platform"
-			admissions = append(admissions, storage.Admission{Class: "quarantine", Scope: "school", Plaintext: true, ExpiresAt: c.Now().Add(48 * time.Hour)})
+		i, err := storagetest.RegisterContribution(h.ctx, st, system, "register-"+id, storage.Instance{
+			ID: id, Adapter: "fixture", OwnerDomain: storage.ContributionOwnerDomain(system), CredentialRef: id, CredentialRevision: 1, Root: "isolated",
+			Limit: 1 << 20, Authorized: true, ExpiresAt: c.Now().Add(48 * time.Hour), Admissions: admissions,
+		})
+		must(t, err)
+		if n < 2 {
+			_, err = storagetest.Trust(h.ctx, st, system, i, "school", []string{"quarantine", "restricted"})
+			must(t, err)
 		}
-		_, e = st.Register(h.ctx, system, "register-"+id, storage.Instance{ID: id, Adapter: "fixture", OwnerDomain: id, Ownership: kind, CredentialRef: id, CredentialRevision: 1, Root: "isolated", State: "active", Authorized: true, Limit: 1 << 20, ExpiresAt: c.Now().Add(48 * time.Hour), Admissions: admissions})
-		must(t, e)
 	}
 	return h
 }
@@ -295,8 +300,8 @@ func TestUploadQuarantineApprovalAndReferenceLifecycle(t *testing.T) {
 	}
 	h.cycle(t)
 	h.provider.mu.Lock()
-	if h.provider.writes["account-1"] != 0 || h.provider.writes["account-2"] != 0 {
-		t.Error("unapproved bytes reached contributor accounts")
+	if h.provider.writes["account-2"] != 0 {
+		t.Error("unapproved bytes reached a public-only account")
 	}
 	h.provider.mu.Unlock()
 	pending, e := h.s.Attach(h.ctx, user, v.ID, "pending", media.Binding{Module: "fixture", ResourceID: "first"})
@@ -552,13 +557,15 @@ func TestLostCreateAfterReplayWindowExpiresCleansOriginalObject(t *testing.T) {
 	data := []byte("creation response missing")
 	v, e := h.s.CreateUpload(h.ctx, user, "lost-create", request(data))
 	must(t, e)
-	if _, e = h.s.Upload(h.ctx, user, v.UploadID, "bytes", bytes.NewReader(data)); !errors.Is(e, media.ErrUnavailable) {
+	if _, e = h.s.Upload(h.ctx, user, v.UploadID, "bytes", bytes.NewReader(data)); e != nil {
 		t.Fatal(e)
 	}
 	h.clock.Add(25 * time.Hour)
 	_, e = h.store.Reconcile(h.ctx, system, 100, "")
 	must(t, e)
-	h.cycle(t)
+	for range 4 {
+		h.cycle(t)
+	}
 	st, e := h.s.GetVersion(h.ctx, user, v.ID)
 	must(t, e)
 	if st.State != "expired" || !st.CleanupComplete {
@@ -566,7 +573,8 @@ func TestLostCreateAfterReplayWindowExpiresCleansOriginalObject(t *testing.T) {
 	}
 	var count int
 	must(t, h.admin.QueryRow(`SELECT count(*) FROM storage.objects`).Scan(&count))
-	if count != 1 {
+	if count != 2 { // Each protection group has one reserved object.
+
 		t.Fatal("created replacement object while recovering", count)
 	}
 }
@@ -1108,6 +1116,7 @@ func TestReplayExpiryAndReleasedHistory(t *testing.T) {
 		t.Fatal("early expiry")
 	}
 	h.clock.Add(time.Second)
+	h.refreshQuota(t)
 	next, e := h.s.CreateUpload(h.ctx, user, "create", req)
 	must(t, e)
 	if next.ID == v.ID {
@@ -1340,6 +1349,7 @@ func TestVersionRejectionReasonCleanupAndPendingApprovalRetention(t *testing.T) 
 	if _, e = h.s.Reject(h.ctx, user, submitted.ID, "bad-reason", "unknown_reason"); !errors.Is(e, media.ErrInput) {
 		t.Fatal("accepted unknown rejection reason", e)
 	}
+	h.refreshQuota(t)
 	unverified, e := h.s.CreateUpload(h.ctx, user, "unverified", request([]byte("not uploaded yet")))
 	must(t, e)
 	if _, e = h.s.Reject(h.ctx, user, unverified.ID, "reject-created", media.ReasonPolicyViolation); !errors.Is(e, media.ErrConflict) {
@@ -1736,7 +1746,8 @@ func TestOperationsBacklogBlockedRetryBoundedPruneAndReadiness(t *testing.T) {
 		t.Fatal("prune changed replay before 24h", still.ID, v.ID)
 	}
 	h.clock.Add(23 * time.Hour)
-	// Create one fresh replay that must NOT be pruned.
+	h.refreshQuota(t)
+	// Both the version-ID reservation and the completed upload receipt must survive pruning.
 	_, e = h.s.CreateUpload(h.ctx, user, "fresh-replay", request([]byte("fresh")))
 	must(t, e)
 
@@ -1753,7 +1764,7 @@ func TestOperationsBacklogBlockedRetryBoundedPruneAndReadiness(t *testing.T) {
 
 	var afterAudit, remainingFreshReplays, remainingUndelivered int
 	must(t, h.db.QueryRow(`SELECT (SELECT count(*) FROM media.audit),(SELECT count(*) FROM media.replays),(SELECT count(*) FROM media.outbox WHERE NOT delivered)`).Scan(&afterAudit, &remainingFreshReplays, &remainingUndelivered))
-	if afterAudit < beforeAudit || remainingFreshReplays != 1 || remainingUndelivered < beforeOutbox {
+	if afterAudit < beforeAudit || remainingFreshReplays != 2 || remainingUndelivered < beforeOutbox {
 		t.Fatalf("prune touched audit, fresh replay, or undelivered outbox: audit=%d/%d replays=%d undelivered=%d/%d", afterAudit, beforeAudit, remainingFreshReplays, remainingUndelivered, beforeOutbox)
 	}
 
@@ -1828,5 +1839,51 @@ func TestRetainedSourceSurvivesReleaseAndRestoresWithFreshPublication(t *testing
 	current, err := service.GetVersion(h.ctx, user, v.ID)
 	if err != nil || current.State != "deleting" {
 		t.Fatal("removed source did not enter cleanup", current.State, err)
+	}
+}
+
+func (h *fixture) refreshQuota(t *testing.T) {
+	t.Helper()
+	items, err := h.store.Instances(h.ctx, system, 100, "")
+	must(t, err)
+	for _, i := range items {
+		must(t, h.store.RefreshInstance(h.ctx, system, i.ID))
+	}
+}
+
+func TestAdmissionRejectsBeforeSessionAndSameRequestResumes(t *testing.T) {
+	h := newFixture(t)
+	list, err := h.store.Instances(h.ctx, system, 100, "")
+	must(t, err)
+	var paused []storage.InstanceHealth
+	for _, i := range list {
+		r, e := h.store.CommandInstance(h.ctx, system, i.ID, "pause-"+i.ID, storage.InstanceCommand{Revision: i.Revision, Action: "pause"})
+		must(t, e)
+		paused = append(paused, r)
+	}
+	data := []byte("resume once")
+	state, err := h.s.UploadIntake(h.ctx, user, "documents", int64(len(data)))
+	must(t, err)
+	if state.Mode != "paused" || state.Reason != "storage_replica_shortage" {
+		t.Fatal(state)
+	}
+	if _, err = h.s.CreateUpload(h.ctx, user, "admission", request(data)); !errors.Is(err, media.ErrReplicaShortage) {
+		t.Fatal("session admitted without replicas", err)
+	}
+	var files, versions int
+	must(t, h.db.QueryRow("SELECT (SELECT count(*) FROM media.files),(SELECT count(*) FROM media.versions)").Scan(&files, &versions))
+	if files != 0 || versions != 0 || totalWrites(h) != 0 {
+		t.Fatal("rejected upload changed files, versions or physical data")
+	}
+	for _, r := range paused {
+		_, err = h.store.CommandInstance(h.ctx, system, r.ID, "resume-"+r.ID, storage.InstanceCommand{Revision: r.Revision, Action: "resume"})
+		must(t, err)
+	}
+	v, err := h.s.CreateUpload(h.ctx, user, "admission", request(data))
+	must(t, err)
+	again, err := h.s.CreateUpload(h.ctx, user, "admission", request(data))
+	must(t, err)
+	if again.ID != v.ID || again.UploadID != v.UploadID || v.UploadID == "" {
+		t.Fatal("recovery did not reuse the accepted upload")
 	}
 }

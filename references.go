@@ -328,7 +328,7 @@ func (s *Service) Publish(ctx context.Context, p Principal, id, key string) (Ref
 	if e != nil {
 		return r, storeError(e)
 	}
-	if st.Protection != v.Profile.Published || st.Healthy < st.Policy.Publish {
+	if st.Protection != v.Profile.Published || !st.CanReference() {
 		return r, ErrUnavailable
 	}
 	_, e = s.store.Reference(ctx, s.cfg.Actor, v.ObjectID, "media-publish:"+v.ID, storage.Reference{Module: "media", ID: v.ID}, true)

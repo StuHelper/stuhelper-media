@@ -29,7 +29,11 @@ func (s *Service) ensureObject(ctx context.Context, v Version) (string, error) {
 	if !v.ObjectIssued {
 		return "", ErrConflict
 	}
-	st, e := s.store.Create(ctx, s.cfg.Actor, "media-create:"+v.ID, storage.CreateRequest{Deduplicate: v.Shared, ReuseFrom: v.ReuseObject, ClientKey: "media:" + v.ID, Size: v.Size, SHA256: v.SHA256, Protection: v.Profile.Quarantine})
+	request := storage.CreateRequest{Deduplicate: v.Shared, ReuseFrom: v.ReuseObject, ClientKey: "media:" + v.ID, Size: v.Size, SHA256: v.SHA256, Protection: v.Profile.Quarantine}
+	if v.Prepared {
+		request.ReserveFor = &v.Profile.Published
+	}
+	st, e := s.store.Create(ctx, s.cfg.Actor, "media-create:"+v.ID, request)
 	if e != nil && st.ID == "" {
 		return "", storeError(e)
 	}
@@ -206,6 +210,11 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 			current.UploadedBytes = current.Size
 			current.ErrorCode = ""
 			s.extendPendingRetention(&current)
+		case errors.Is(e, ErrUploadTooLarge):
+			current.State = "created"
+			current.UploadedBytes = 0
+			current.TypeValidated = false
+			current.ErrorCode = e.Error()
 		case errors.Is(e, ErrIntegrity) || errors.Is(e, ErrType):
 			current.State = "rejected"
 			current.UploadedBytes = 0
