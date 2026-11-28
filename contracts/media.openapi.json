@@ -2318,7 +2318,7 @@
         }
       },
       "RetryableFailure": {
-        "description": "Sanitized failure",
+        "description": "A failed content transfer with media_upload_result_unconfirmed is being reconciled. Read the existing upload status before retrying.",
         "content": {
           "application/json": {
             "schema": {
@@ -3057,6 +3057,7 @@
           "method_not_allowed",
           "media_storage_replica_shortage",
           "media_storage_replica_space",
+          "media_upload_result_unconfirmed",
           "media_storage_restricted_encryption_unavailable"
         ]
       },
