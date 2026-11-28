@@ -42,6 +42,7 @@ const (
 	ProblemCodeMediaTypeNotAllowed                         ProblemCode = "media_type_not_allowed"
 	ProblemCodeMediaUnavailable                            ProblemCode = "media_unavailable"
 	ProblemCodeMediaUploadExpired                          ProblemCode = "media_upload_expired"
+	ProblemCodeMediaUploadResultUnconfirmed                ProblemCode = "media_upload_result_unconfirmed"
 	ProblemCodeMediaUploadTooLarge                         ProblemCode = "media_upload_too_large"
 	ProblemCodeMediaVersionLimitExceeded                   ProblemCode = "media_version_limit_exceeded"
 	ProblemCodeMethodNotAllowed                            ProblemCode = "method_not_allowed"
@@ -89,6 +90,8 @@ func (e ProblemCode) Valid() bool {
 	case ProblemCodeMediaUnavailable:
 		return true
 	case ProblemCodeMediaUploadExpired:
+		return true
+	case ProblemCodeMediaUploadResultUnconfirmed:
 		return true
 	case ProblemCodeMediaUploadTooLarge:
 		return true

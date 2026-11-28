@@ -539,7 +539,7 @@ export interface components {
         /** @enum {string} */
         VersionErrorCode: "" | "media_integrity_failed" | "media_content_type_rejected" | "media_upload_expired" | "media_upload_result_unconfirmed" | "media_unavailable" | "media_permission_denied" | "media_conflict" | "media_capacity_unavailable" | "media_transfer_busy";
         /** @enum {string} */
-        ProblemCode: "authentication_required" | "media_invalid_input" | "media_filename_invalid" | "media_type_not_allowed" | "media_permission_denied" | "media_not_found" | "media_conflict" | "media_upload_expired" | "media_upload_too_large" | "media_archive_too_large" | "media_integrity_failed" | "media_content_type_rejected" | "media_open_uploads_limit" | "media_file_limit_exceeded" | "media_version_limit_exceeded" | "media_reference_limit_exceeded" | "media_transfer_busy" | "media_capacity_unavailable" | "media_unavailable" | "method_not_allowed" | "media_storage_replica_shortage" | "media_storage_replica_space" | "media_storage_restricted_encryption_unavailable";
+        ProblemCode: "authentication_required" | "media_invalid_input" | "media_filename_invalid" | "media_type_not_allowed" | "media_permission_denied" | "media_not_found" | "media_conflict" | "media_upload_expired" | "media_upload_too_large" | "media_archive_too_large" | "media_integrity_failed" | "media_content_type_rejected" | "media_open_uploads_limit" | "media_file_limit_exceeded" | "media_version_limit_exceeded" | "media_reference_limit_exceeded" | "media_transfer_busy" | "media_capacity_unavailable" | "media_unavailable" | "method_not_allowed" | "media_storage_replica_shortage" | "media_storage_replica_space" | "media_upload_result_unconfirmed" | "media_storage_restricted_encryption_unavailable";
         JobTotals: {
             /** Format: int64 */
             pending: number;
@@ -610,7 +610,7 @@ export interface components {
                 "application/json": components["schemas"]["Problem"];
             };
         };
-        /** @description Sanitized failure */
+        /** @description A failed content transfer with media_upload_result_unconfirmed is being reconciled. Read the existing upload status before retrying. */
         RetryableFailure: {
             headers: {
                 "Retry-After"?: string;

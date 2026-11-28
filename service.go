@@ -894,6 +894,8 @@ func storeError(e error) error {
 	switch {
 	case e == nil:
 		return nil
+	case errors.Is(e, storage.ErrUnknown):
+		return ErrUploadUnconfirmed
 	case errors.Is(e, storage.ErrIntegrity):
 		return ErrIntegrity
 	case errors.Is(e, storage.ErrInput):

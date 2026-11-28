@@ -581,6 +581,27 @@ func TestLostCreateAfterReplayWindowExpiresCleansOriginalObject(t *testing.T) {
 	}
 }
 
+func TestUnconfirmedStorageWriteReturnsVerifyingUpload(t *testing.T) {
+	for _, failure := range []error{storage.ErrUnknown, storage.ErrUnavailable} {
+		h := newFixture(t)
+		must(t, h.s.Close(h.ctx))
+		store := &hookStore{Store: h.store, onIngest: func(string, string, io.Reader) error { return failure }}
+		var err error
+		h.s, err = media.New(h.repo, h.policy, store, h.cfg)
+		must(t, err)
+		body := []byte("upload bytes")
+		v, err := h.s.CreateUpload(h.ctx, user, "unconfirmed-create", request(body))
+		must(t, err)
+		out, err := h.s.Upload(h.ctx, user, v.UploadID, "unconfirmed-write", bytes.NewReader(body))
+		if !errors.Is(err, media.ErrUploadUnconfirmed) || !errors.Is(err, media.ErrUnavailable) {
+			t.Fatalf("expected an unconfirmed storage result, got %v", err)
+		}
+		if out.State != "verifying" || out.ErrorCode != "media_upload_result_unconfirmed" || out.UploadedBytes != 0 || store.ingestCalls != 1 {
+			t.Fatal("ambiguous write did not retain the pending upload")
+		}
+	}
+}
+
 type hookStore struct {
 	media.Store
 	ingestCalls int
