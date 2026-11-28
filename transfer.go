@@ -221,7 +221,7 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 			current.ErrorCode = e.Error()
 		default:
 			current.State = "verifying"
-			current.ErrorCode = "media_upload_result_unconfirmed"
+			current.ErrorCode = ErrUploadUnconfirmed.Error()
 		}
 		out = current
 		if err = tx.SaveVersion(current); err != nil {
@@ -237,6 +237,9 @@ func (s *Service) Upload(ctx context.Context, p Principal, id, key string, src i
 	}
 	if fencedErr != nil {
 		return out, fencedErr
+	}
+	if e == ErrUnavailable && out.ErrorCode == ErrUploadUnconfirmed.Error() {
+		return out, ErrUploadUnconfirmed
 	}
 	return out, e
 }
@@ -482,7 +485,7 @@ func (s *Service) AppendUpload(ctx context.Context, p Principal, id, key string,
 		case completedBytes && current.ObjectIssued:
 			current.State = "verifying"
 			current.UploadedBytes = current.Size
-			current.ErrorCode = "media_upload_result_unconfirmed"
+			current.ErrorCode = ErrUploadUnconfirmed.Error()
 			out = current
 			if err = tx.SaveVersion(current); err != nil {
 				return err
@@ -503,6 +506,9 @@ func (s *Service) AppendUpload(ctx context.Context, p Principal, id, key string,
 	}
 	if out.State != "uploading" {
 		s.staging.remove(v.ID)
+	}
+	if e == ErrUnavailable && out.ErrorCode == ErrUploadUnconfirmed.Error() {
+		return out, ErrUploadUnconfirmed
 	}
 	return out, e
 }

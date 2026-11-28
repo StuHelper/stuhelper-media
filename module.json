@@ -99,6 +99,7 @@
       "http_test.go#TestHTTPOperationsRetryPruneAndTraceObservation"
     ],
     "MEDIA-17": [
+      "integration_test.go#TestUnconfirmedStorageWriteReturnsVerifyingUpload",
       "http_test.go#TestHTTPStructuredErrorCodesLimitsAndRetryAfter"
     ],
     "MEDIA-18": [

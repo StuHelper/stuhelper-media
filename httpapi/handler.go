@@ -496,6 +496,7 @@ func failure(w http.ResponseWriter, e error) {
 		{media.ErrTransferBusy, 503, 3},
 		{media.ErrReplicaShortage, 503, 0},
 		{media.ErrReplicaSpace, 503, 0},
+		{media.ErrUploadUnconfirmed, 503, 0},
 		{media.ErrRestrictedUnavailable, 503, 0},
 		{media.ErrCapacity, 503, 5},
 	} {

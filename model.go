@@ -28,6 +28,7 @@ var (
 	ErrCapacity    = errors.New("media_capacity_unavailable")
 	ErrExpired     = errors.New("media_upload_expired")
 
+	ErrUploadUnconfirmed     error = &codedError{code: "media_upload_result_unconfirmed", parent: ErrUnavailable}
 	ErrRestrictedUnavailable error = &codedError{code: "media_storage_restricted_encryption_unavailable", parent: ErrUnavailable}
 	ErrReplicaShortage       error = &codedError{code: "media_storage_replica_shortage", parent: ErrCapacity}
 	ErrReplicaSpace          error = &codedError{code: "media_storage_replica_space", parent: ErrCapacity}
